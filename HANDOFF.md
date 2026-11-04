@@ -82,7 +82,7 @@ T1 骨架、T2 导入+阅读、T3 标注+词库、T4 小克抽屉+前情摘要�
 | 单测覆盖 | 词表形状/大小/切档、country 和英式拼写/词形、句首判断、人名闸和例外、isVisible 两道闸 + learning 越过 + "-" level、入库打 hiddenReason、样本排除常用词、点词补注不记词库、导出不导常用词、pillState 四种情况、ensureAround 回报序列、本章生词排序去重、解析器不插省略号不切段 |
 | headless 390px（`node scripts/fix1-browser.mjs`，假 API） | 11/11 过：标注中… → 预取下一段 → 消失；塞进去的 B2 常用词（children）和句中人名（Wendy）不划线；章末按钮间隔 40px；本章生词 11 条不含被闸的词；点一条跳过去；0 报错。报告 `shots/fix1-data/browser.json` |
 | 真跑 | 见上，$0.011（上限 $0.3） |
-| 推 main → 线上 | 见下一行（推完回填） |
+| 推 main → 线上 | 提交 `0b40791` 推 main，Actions「Deploy to GitHub Pages」成功；线上 `index.html` 的主包从 `index-7J0tw1uT.js` 变成 `index-BVJ7xlKp.js`，新包里有"本章生词""预取下一段"，首页 200。她手机上是 service worker 的 prompt 模式：打开后出"有新版本"横条，点了才切 |
 
 **没改的**：模型选择（Haiku/Sonnet 她还没定）、prompt（`ANNOTATE_PROMPT_VERSION` 没动，不触发重标）、books/。
 
