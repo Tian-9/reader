@@ -53,14 +53,58 @@
 
 **共享接口全在 `src/types.ts`，Dexie 表在 `src/db/db.ts`。** 两边并行时只认这两个文件；要改字段先改这里，再通知另一边。
 
-### T2（EPUB 导入 + 阅读器）
-- 产出：`ParaRow`（= `Para` + `bookId`）写进 `db().paras`，`ChapterRow` 写进 `db().chapters`，`Book` 写进 `db().books`（id = 文件 sha256）。
-- 段落编号用 `paraId(chapter, idx)` 生成（`c03p0012`），反解用 `parseParaId`。章号、段号都从 1 开始。排序用 `[chapter, idx]`，别按字符串排（超过 99 章时会乱）。
-- 按章读段：`chapterParas(db(), bookId, n)`（走 `[bookId+chapter+idx]` 索引，已排好序）。
-- 阅读进度写 `db().progress`（主键 bookId）。
-- 入口：`src/pages/ReaderPage.svelte` 现在是空壳，导入按钮、阅读视图从这里长出来。排版变量在 `src/app.css` 的 `--read-size / --read-leading / --para-gap`。
-- 要装 fflate（`npm i fflate`）。测试用 EPUB 在测试代码里用 `zipSync` 现场拼（`.gitignore` 有 `*.epub`）；Peter Pan / Oz 在 books/，只读。
-- 界面导航现在是 App.svelte 里一个 `view` 变量，页面多了可以换成别的方式。
+### T2（EPUB 导入 + 阅读器）—— 2026-11-04 完成，未部署
+
+提交：`6af04b9`（加 fflate、jsdom）、`6e6ed31`（T2 本体）。
+
+**验收结果**
+
+| 项 | 结果 |
+|---|---|
+| 彼得潘导入 | 17 章，章名和目录逐字一致（`Chapter I. PETER BREAKS THROUGH` … `Chapter XVII. WHEN WENDY GREW UP`），1654 段，47,087 词（4.8 万的 -1.9%）。正文里没有 "Project Gutenberg" 字样，末段是 `THE END` |
+| 导入速度 | headless Chrome、CPU 降速 4 倍（模拟中档手机）：点选文件到第一段出现 ~590ms，解析+入库 ~460ms |
+| 绿野仙踪 | 24 章（`Chapter I The Cyclone` … `Chapter XXIV Home Again`），39,139 词。**Introduction 不算章**（算前置页跳过，见下面"切章规则"） |
+| 自制带 encryption.xml（加密 xhtml）的 epub | 拒绝，提示语和 PLAN 2.3 一字不差。单测 + 浏览器里实测各一次（浏览器用的是给彼得潘塞了一个 encryption.xml 的副本，放 scratchpad，没进仓库） |
+| 只加密字体（idpf / Adobe 两种算法） | 正常导入（单测） |
+| rights.xml / sinf.xml / 乱码 / 非 zip | 拒绝（单测） |
+| 刷新模拟杀掉重开 | 滚到 c01p0037 → 库里存 c01p0037 → 刷新后屏幕最上面还是 c01p0037 |
+| 断网 | service worker 接管后断网刷新能打开，翻到第 2 章（104 段）滚到章末 |
+| 点词 | `{"paraId":"c01p0001","start":346,"end":351,"surface":"can’t"}`，偏移和原文对得上；console.log + `word-tap` 事件都有。兜底路径（段内没有词 span，按坐标算）也能拿到 |
+| 字号行距 | 调到 28px 后刷新还是 28px，调字号前后屏幕最上面是同一段 |
+| `npm run lint` / `npm run build` | 通过（0 错 0 警告；在只含 T2 提交的干净 worktree 里也单独跑过） |
+| 截图（390px 宽） | `shots/t2-import.png`（导入后）、`shots/t2-large.png`（28px 字号） |
+| AO3 EPUB | **待验**：2026-11-04 AO3 整站维护（curl 回 418，浏览器里显示 "The archive is down for maintenance"）。恢复后下一篇公开作品，`EXTRA_EPUB=/path/x.epub npx vitest run test/epub-books.test.ts` 会打印章节和被跳过的条目，验完删文件 |
+
+**文件**
+- `src/epub/parse.ts`：解析（container → OPF → spine → NAV/NCX → 切章拆段）。`src/epub/drm.ts`：DRM 前两条。`src/epub/errors.ts`：`EpubError` + 提示语。`src/epub/import.ts`：sha256 去重、入库、`currentBookId()`。`src/epub/words.ts`：分词 `tokenize / wordAt / segments`。
+- `src/components/ReaderView.svelte`：阅读视图（一次渲染一章）。`ParaText.svelte`：一段拆成词 span。`ImportButton.svelte`：文件选择器 + 进度条。`reading.svelte.ts`：阅读状态。
+- `src/pages/ReaderPage.svelte` 只剩"没书 → 导入入口 / 有书 → 挂 ReaderView"。
+- 测试：`test/epub.test.ts`（12 条，夹具用 `test/epub-fixture.ts` 现场 zipSync 拼）、`test/epub-books.test.ts`（真书，books/ 不在时自动跳过）。这两个文件头上有 `// @vitest-environment jsdom`（要 DOMParser），其余测试还是 node 环境。
+
+**合同改动（只加不改）**
+- `Settings` 加了 `readSize?: number`（px）、`readLeading?: number`（倍数），没设走 app.css 的默认值。没加 Dexie 表、没动 db.ts。
+
+**切章规则**（`parse.ts` 文件头有全文）
+- 章 = 目录（NAV，没有就 NCX）里的条目，按条目指向的锚点切，不按文件切（一个文件多章、一章多个文件都行）。
+- 目录里有 ≥2 条像章节的（`Chapter …`、`1. …`、`IV. …`、Prologue/Epilogue）：第一条之前、最后一条之后的都算前置/后置页跳过，中间夹的非章节条目（比如 Interlude）保留。否则只按关键词跳（Cover、Contents、Copyright、Preface、Afterword、license、Project Gutenberg 等）。
+- 切完 0 词的章丢掉（封面壳），章号按保留顺序重编。Gutenberg 的 `pg-boilerplate` 页眉页脚、页码（`pagenum`、`epub:type="pagebreak"`）在哪都剔掉。
+- 章首的标题如果是目录标题的一部分（`Chapter I.<br/>PETER BREAKS THROUGH`）不收成段；其他小标题照收。`<br>` 变空格。
+- 已知取舍：Oz 的 Introduction、AO3 的 Preface/Afterword（作者前言后记、标签）会被跳过。HP1 正式版的目录如果是 "CHAPTER ONE …" 也会走章节模式，到时候验一次 17 章。
+
+**和 PLAN 不一样的地方**
+1. **段落少于 50 不拒绝，只提示**："只拆出了 N 段。如果这本书本来很长，可能是加密了……"。AO3 短篇本来就不到 50 段，拒了第二内容源就废了。乱码（替换符/控制字符 >1%，或字母占比 <50%）照样拒。
+2. **关掉了 CSS 断字**（`hyphens: manual`）：自动断字会把 romantic 拆成 ro-/mantic 跨两行，学英语时难认也难点（实测点词兜底就是被这个坑的）。
+3. 阅读视图一次只渲染一章，章末"下一章"按钮。整本连续滚动要做虚拟列表，MVP 不值。
+4. 多本书：没做书架，但目录面板里有"其他书"列表和"导入另一本"。当前书 = 进度更新时间最新的那本。同一文件重复导入不重新解析，只切过去。
+
+**给 T3 / T4 的接口**
+- 点词：阅读视图根元素冒泡派发 `CustomEvent('word-tap', { detail: { paraId, start, end, surface } })`（`bubbles + composed`，在 window/document 上都能听到）；也可以给 `ReaderView` 传 `onwordtap`。形状和 T3 在 types.ts 里写的 `WordTapDetail` 一样，T2 这边用的是 `components/reading.svelte.ts` 里同形状的 `WordTap`（为了不依赖 T3 没提交的类型）。
+- 画标注：`ReaderView` 有两个 snippet 口子 —— `paraContent(p: ParaRow)` 换掉段内渲染（默认是 `<ParaText text={p.text} />`），`afterPara(p)` 在每段后面挂东西。段落元素是 `<p class="para" data-pid=…>`。**要求：段落元素里的文字必须等于 `para.text`**，否则偏移对不上；页边记号之类不属于正文的元素加 `data-nontext`，点词和偏移计算会跳过它。保留 `.w[data-s][data-e]` 词 span 最省事；不保留也行，点词会按坐标（`caretPositionFromPoint`）兜底。
+- 可见段落：`import { reading } from '../components/reading.svelte'`，`reading.visibleParaIds`（屏幕上的段，按顺序）、`reading.topParaId`（最上面那段 = 进度）、`reading.bookId`、`reading.chapter`。T3 预取、T4 聊天上下文直接读。
+- 换书/导入在 `src/epub/import.ts`：`importEpub(db, bytes, onProgress)`、`currentBookId(db)`、`touchProgress(db, bookId)`。
+- 界面导航还是 App.svelte 里一个 `view` 变量。
+
+**本地 headless 实测怎么跑**：`npm run build && npx vite preview --port 4173`，脚本在剧组 scratchpad（puppeteer-core + 本机 Chrome，没进项目依赖）。要点：Aa/目录面板是底部弹层，点遮罩要点上方空白处（点中心会点进目录）；断网测试要先等 `navigator.serviceWorker.ready` 再刷新一次让 SW 接管。
 
 ### T3（标注管线 + 词库）
 - prompt 和 schema：`src/llm/prompts/annotate.ts`（`ANNOTATE_SYSTEM`、`ANNOTATE_USER_TEMPLATE`、`ANNOTATE_SCHEMA`、`TAP_SCHEMA`、`ANNOTATE_PROMPT_VERSION`）。和 PLAN 3.1 逐字一致；点词补注的 system 短版 PLAN 没出全文，T3 自己写。
