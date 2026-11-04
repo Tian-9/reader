@@ -3,8 +3,10 @@
   import SettingsPage from './pages/SettingsPage.svelte';
   import { loadSettings } from './settings.svelte';
   import { applyUpdate, initPwa, pwa } from './pwa.svelte';
+  import { requestPersist } from './storage.svelte';
 
   initPwa();
+  requestPersist();
 
   type View = 'read' | 'settings';
   let view: View = $state('read');

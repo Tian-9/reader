@@ -1,9 +1,12 @@
 # HANDOFF
 
-## 当前状态（2026-11-04，T1–T4 代码完成，未部署）
+## 当前状态（2026-11-04，T1–T5 代码完成，未部署）
 
-T1 骨架/代理、T2 导入+阅读、T3 标注+词库、T4 小克抽屉+前情摘要都在本地跑通，导入→阅读→标注→点词→卡片→问小克→抽屉这条链在 App 里连起来了。
-**还差什么才能给她用，看最后一节"收口清单"。** 没部署、没设 secret、没推 GitHub（仓库只在本地 git）。所有需要真 key 的验收都"待 key"，脚本已备好（`bash scripts/real-all.sh` 一条命令）。
+T1 骨架/代理、T2 导入+阅读、T3 标注+词库、T4 小克抽屉+前情摘要、T5 生词导出+备份+花费面板都在本地跑通。MVP 的代码部分到此齐了。
+**还差什么才能给她用，看最后一节"收口清单"。** 没部署、没设 secret、没推 GitHub（仓库只在本地 git）。
+本机真跑 key 在 `~/.config/reader/key`（2026-11-04 她给的），`bash scripts/real-all.sh` 自动读；真跑结果见 T3/T4 段的"真跑"小节。
+
+**2026-11-04 她定的改动**：去掉地域人设（"都柏林人怎么说"之类），先普通聊。标注/点词/小克三个 prompt 删掉了住在都柏林、爱尔兰用法相关的句子，fun_type「爱尔兰/方言」改成「方言/口音」，三个 PROMPT_VERSION 各 +1（已标过的组读到时会重标）。PLAN 3.1/3.2 同步，`test/prompts.test.ts` 现在逐字核对 prompt 和 PLAN。提交 `c721ea2`。
 
 ### T1（骨架 + 代理）
 
@@ -224,6 +227,44 @@ bash scripts/real-all.sh          # 顺序跑 t3-real（≤$1.5）+ t4-real（�
 - 服务器端 fallback 万一把聊天转到不支持中途 system 消息的模型，切英文那轮可能 400。真跑第 3 步会暴露；真出了就在 fallback 时去掉 system 消息改成 user 里的提示。
 - Sonnet 5.5 的 `CHAT_SYSTEM` 估计 ~700 token，过 512 的缓存下限；真跑看第一轮 `cache_creation_input_tokens` 是否 >0 就知道。
 
+### T5（生词导出 + 备份 + 花费面板）—— 2026-11-04 完成，未部署
+
+全在设置页（`src/pages/SettingsPage.svelte`）下半截：花费 / 词库 / 存储三块。
+
+**验收结果**
+
+| 项 | 结果 |
+|---|---|
+| 导出的生词文件过 `scripts/validate-export.mjs` | 过：单测（app 的导出结果直接喂校验脚本）+ 浏览器里真点"导出生词"下载的文件（20 条，2 条没释义的被跳过并提示） |
+| 清空站点数据后导入备份，词库条数一致（headless） | 过：33 → `Storage.clearDataForOrigin`（等于"清除网站数据"）后 0 → 设置页"从备份恢复"选文件 → 33，每个词状态/释义/点击数一致；水平、防剧透、聊天模型、字号也恢复 |
+| 花费面板 = 账本求和，误差 < $0.001 | 过：单测 300 笔随机账（两本书 + 没挂书的），合计、每个用途、每个用途×模型都逐项对账，显示的 3 位小数也 < $0.001；浏览器里 $0.529 vs 账本 $0.529057 |
+| `navigator.storage.persist()` | 启动时调（App.svelte），设置页显示"已申请持久存储：是/否/浏览器不支持"。headless 下是"否"（没加主屏幕，正常） |
+| `npm run lint` / `npm run build` | 通过（0 错 0 警告；116 个单测 + 1 个跳过，T5 新增 8 个） |
+| 截图 390px | `shots/t5-settings.png`（整页，含花费面板；数据是自编的种子） |
+| 浏览器验收全程 | `node scripts/t5-browser.mjs`（先 `npm run build && npx vite preview --port 4173`），14/14 过，明细 `shots/t5-data/browser.json` |
+
+**文件**
+- `src/export/vocab.ts`：生词导出。`src/export/backup.ts`：备份 / 解析 / 合并导入。`src/llm/spend.ts`：花费分组求和 + `formatUsd`。`src/storage.svelte.ts`：`requestPersist()`、`downloadJson()`。
+- `scripts/validate-export.mjs`（+ `.d.mts` 类型）：校验脚本，和 app 的导出代码是两份独立实现（故意的，互相对账）。`scripts/t5-browser.mjs`：headless 验收。
+- 测试：`test/export.test.ts`。
+
+**导出生词的形状**（PLAN T5，背单词页 `words` 集合）：数组，每条 `{en, zh, lesson, cluster, key, gloss_zh, context_zh, root, mishearing, mnemonic}`，全是字符串。
+- 取 words 表 status 是 learning / unknown 的；按第一次遇到的位置排（书 → 章 → 段）。
+- `en` = lemma；`zh` = 词库里的释义，没有就找同 lemma 的 vocab 标注（优先第一次遇到的那段）；都没有 → 跳过并在提示里列出来（zh 必填）。
+- `gloss_zh` = 那条标注的 note_zh（补充说明，和 zh 一样就留空）。`lesson` = 书名驼峰 + 章，如 `PeterPan-ch03`（去开头冠词、只留 ASCII、最长 24 字符；全中文书名退成 `Book`）。
+- `context_zh` 目前只写"第 N 章"——PLAN 例子里是"德思礼家早餐时找信的那一幕"这种场景描述，库里没有现成的，要再调一次模型才有。MVP 不做，第一次真导出时看她要不要。
+- 红线：quote 和段落原文一律不进文件。校验脚本会拦"除 en 外任何字段夹着 ≥6 个连续英文词"、en 超 5 词、多字段、en 重复。
+- 文件名 `生词-YYYY-MM-DD.json`。写进背单词页要她把文件交给 Claude 会话导入（PLAN T5：PWA 写不了 ArtifactData）。
+
+**备份**：`{format:"reader-backup", version:1, exportedAt, words:[整张表], settings:{…}}`，文件名 `词库备份-YYYY-MM-DD.json`。
+- 导入先整份校验（不是 JSON / 是生词导出文件 / 版本不对 / 状态不对都直接拒，库一行不动），再在一个事务里按 lemma 合并：同 lemma 用备份的整行覆盖，本机多出来的保留。设置用备份覆盖。
+
+**和 PLAN 不一样 / PLAN 没写死的地方**
+1. **备份不带应用口令。** 备份文件会进下载目录、可能发给 Claude 会话，口令一漏别人就能花她的额度。导入时保留本机口令；清空数据后恢复，口令要重新填。
+2. **金额显示 3 位小数（$0.529）**，不是 PLAN 写的 `$x.xx`：两位小数四舍五入最多差 $0.005，过不了"误差 < $0.001"。不到千分之一但不为 0 的写 `<$0.001`。
+3. 花费面板放在设置页（不放抽屉顶部）：抽屉每条回复下已经有本轮花费，总账放设置页够了。面板下面顺手加了"前情摘要已生成 N 章"（收口清单里说过线上验摘要时想看）和"所有书合计 + 按模型"一行。
+4. 书、标注、聊天、账本不进备份（书有版权，其余能重新生成或不值得搬）。
+
 ## 本地测页面的小技巧
 
 - Chrome headless 的 `--dump-dom` 一次性模式里 IndexedDB 会卡住，页面会停在只有标题的状态（不是代码问题）。要看真实渲染，用 `--remote-debugging-port` 开正常会话再用 CDP 取 `document.body.innerText`。
@@ -239,16 +280,17 @@ bash scripts/real-all.sh          # 顺序跑 t3-real（≤$1.5）+ t4-real（�
 
 按顺序，打勾的是剧组已做完的：
 
-- [x] T1–T4 代码、单测、headless 验收（假 API）
+- [x] T1–T5 代码、单测、headless 验收（假 API）
 - [ ] **她**：Cloudflare Pages 建项目 `reader`、第一次部署授权（总台跑 `npm run build && ~/node_modules/.bin/wrangler pages deploy dist --project-name reader --branch main`，授权她点）
 - [ ] **她**：设两个 secret（只有她敲）：`wrangler pages secret put APP_TOKEN --project-name reader`、`wrangler pages secret put ANTHROPIC_API_KEY --project-name reader`；Anthropic 控制台给 key 所在 workspace 设月度上限
 - [ ] **她或总台**：本机放一份 key 给真跑用（shell 的 `ANTHROPIC_API_KEY`，或 `~/.config/reader/.env`），然后 `bash scripts/real-all.sh`（≤ $2）：
   - T3：第 1 章锚定率 ≥90%、quote ≤5 词、第 1/5/12 章截图 + Sonnet 对照 → 她看图拍板 prompt
   - T4：第二轮缓存命中、防剧透开/关、英文模式、念原文守卫、问小克带词 → 她看 `shots/t4-data/report.json` 里的回答原文
   - 跑完把实测花费填进 PLAN 第 6 节的 T3/T4 两行
-- [ ] 部署后线上验：设置页"测一下口令"显示"通了"；手机上导入一本、点词、问小克、读完一章看前情有没有生成（设置页暂时看不到摘要，T5 的面板里可以顺手加）
+- [ ] 部署后线上验：设置页"测一下口令"显示"通了"；手机上导入一本、点词、问小克、读完一章看前情有没有生成（设置页花费面板下有"前情摘要已生成 N 章"）；设置页看"已申请持久存储"加到主屏幕后是不是"是"
+- [ ] 第一次导出生词交给 Claude 导进背单词页：定 HP 的词放哪个 collection / 哪一页（PLAN T5），看 context_zh 只有"第 N 章"够不够
 - [ ] 手机上加到主屏幕、断网再开（T1 遗留的手机部分）
 - [ ] AO3 EPUB 验一次（T2 遗留，AO3 维护结束后）
-- [ ] T5：生词导出 + 备份 + 花费面板（MVP 最后一块，不阻塞先用起来）
+- [x] T5：生词导出 + 备份 + 花费面板（单测 + headless 验收过）
 - [ ] 推 GitHub（私有仓库，PLAN 第 7 节）：剧组没推，总台/她定
-- 提交：T4 的改动**还没 commit**（剧组按规矩没自己提交），工作区里全是，总台看完提交即可
+- 提交：T4 `e4e0da1`、去人设+截断兜底 `c721ea2`、T5 见 git log。全部已 commit，工作区干净

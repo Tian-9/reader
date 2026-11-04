@@ -18,6 +18,8 @@ scripts/
   t3-real.ts / t4-real.ts       真跑验收（直连 Anthropic，要 ANTHROPIC_API_KEY；--mock 假跑）
   real-all.sh                   有 key 时一条命令顺序跑 t3-real + t4-real（合计 ≤ $2）
   t4-browser.mjs                headless Chrome 走一遍 导入→标注→点词→卡片→问小克→抽屉→章末摘要（API 用假回复）
+  t5-browser.mjs                headless：花费面板对账 → 导出生词过校验 → 备份 → 清空站点数据 → 导入备份条数一致
+  validate-export.mjs           按 schema 校验导出的生词 / 词库备份（node scripts/validate-export.mjs x.json）
   t3-epub.ts / t3-shot.mjs / t3-demo/   T3 的抽段、截图、标注层 demo
 src/
   types.ts                      共享接口：Para / Chapter / Annotation / Word / ChatRecord … ← 各 T 的合同（只做加法）
@@ -32,6 +34,9 @@ src/
   llm/roles.ts                  按用途配模型 / effort / max_tokens（业务代码不写死模型名）
   llm/client.ts                 SDK 客户端（懒加载）、baseParams / betaParams、ping
   llm/pricing.ts, ledger.ts     单价表、花费账本
+  llm/spend.ts                  T5：花费面板（按用途/模型分组求和、$ 三位小数）
+  export/                       T5：vocab（生词导出，背单词页形状，不带原句）、backup（词库+设置备份/合并导入，不含口令）
+  storage.svelte.ts             T5：启动时 navigator.storage.persist()、下载 JSON 小工具
   llm/prompts/                  annotate（标注）、tap（点词）、chat（小克 + 中英切换指令）、summary（章节摘要）
   settings.svelte.ts            设置 $state + 读写
   pwa.svelte.ts                 service worker 注册 + "有新版本"横条
@@ -68,6 +73,8 @@ test/                           单测（vitest + fake-indexeddb）。不能放�
 - **聊天历史只追加不改写。** 助手回复连 thinking 块原样存、原样发回；输出守卫只改显示（ChatRecord.display），不改 messages。改历史 = 缓存从那里断 + Sonnet/Opus 5.5 的 thinking 签名失效（新账号直接 400）。中途 `role: "system"` 消息必须紧跟在 user 后面，不能放 messages[0]。
 - **页边 ※ 别伸出屏幕。** ReaderView 的 article 右边留了 14px；伸出去手机上整页会左右晃，headless 里还会把点击坐标带偏。
 - **本机真跑用的 key 在 `~/.config/reader/key`（一行，chmod 600），`scripts/real-all.sh` 自动读。** 别 cat、别 echo、别写进报告或别的文件。
+- **结构化输出（标注/补注/摘要）的 max_tokens 是思考 + 正文共用。** Haiku 5.5 effort=medium 的 adaptive thinking 实测吃 4–5.6K，JSON 会被截断；`callStructured` 截断时自动用 effort=low 重发一次。调小上限前先看真跑的 thinking_tokens。
+- **备份文件不带应用口令**（会进下载目录、发给 Claude 会话）。导入时保留本机口令。
 - **$state.raw 里的数组被就地 push 后，重新赋值外层对象时数组也要换新**（`{...s, display: [...s.display]}`），不然 $derived 看不到变化。
 
 ## 文案
