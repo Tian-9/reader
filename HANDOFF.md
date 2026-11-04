@@ -7,7 +7,7 @@ T1 骨架、T2 导入+阅读、T3 标注+词库、T4 小克抽屉+前情摘要�
 **还差什么才能给她用，看最后一节"收口清单"。**
 本机真跑 key 在 `~/.config/reader/key`（2026-11-04 她给的），`bash scripts/real-all.sh` 自动读；真跑结果见 T3/T4 段的"真跑"小节。
 
-**2026-11-04 她定的改动**：去掉地域人设（"都柏林人怎么说"之类），先普通聊。标注/点词/小克三个 prompt 删掉了住在都柏林、爱尔兰用法相关的句子，fun_type「爱尔兰/方言」改成「方言/口音」，三个 PROMPT_VERSION 各 +1（已标过的组读到时会重标）。PLAN 3.1/3.2 同步，`test/prompts.test.ts` 现在逐字核对 prompt 和 PLAN。提交 `c721ea2`。
+**2026-11-04 她定的改动**：去掉地域人设（"都柏林人怎么说"之类），先普通聊。标注/点词/小克三个 prompt 删掉了住在都柏林、爱尔兰用法相关的句子，fun_type「爱尔兰/方言」改成「方言/口音」，三个 PROMPT_VERSION 各 +1（已标过的组读到时会重标）。PLAN 3.1/3.2 同步，`test/prompts.test.ts` 现在逐字核对 prompt 和 PLAN。提交 `9f5f385`。
 
 ### T1（骨架 + 代理）
 
@@ -52,6 +52,7 @@ PLAN 2.6 / 2.7 已改写（原方案存档在两节末尾）。
 - 单测：新 `test/direct.test.ts`（代理的限额用例搬过来 + 真 SDK 打桩验：地址是 api.anthropic.com/v1/messages、带直连头、key 在请求头、白名单外的请求不发网络、401 文案）；`test/roles.test.ts` 改成核对 roles.ts 自己的白名单，并加了"每个用途 × 每个模型的 baseParams/betaParams 都过 checkBody"。
 - `t4-browser.mjs` / `t5-browser.mjs`：拦截目标从 `/api/anthropic/*` 改成 `https://api.anthropic.com/*`（假回复带 CORS 头），默认地址 `http://localhost:4173/reader/`。
 - 测试和脚本里的假 key 一律不用 Anthropic key 的前缀（公开仓库要能用 `git log --all -p | grep -cE 'sk-an[t]'` = 0 做闸门）。
+- **历史重写过一次（2026-11-04，推 GitHub 之前）**：T1 的 package.json `proxy:dev` 里有一串带 Anthropic key 前缀的假值（不是真 key），为了让上面的闸门是 0，用 `git filter-branch` 把它换成 `fake-key-for-local-tests`，所有提交 hash 都变了（本文件里引用的已改成新的）。重写前的完整仓库打包在剧组 scratchpad 的 `reader-before-rewrite.bundle`（会话临时目录，不长期保留）。
 
 **验收（真请求）**：`node scripts/direct-browser.mjs`（`npm run preview` 的 `/reader/` 下，真 SW、真 CSP、key 从 `~/.config/reader/key` 用 CDP 打进密码框，不打印；临时 Chrome 配置跑完即删）—— **11/11 过**：
 
@@ -94,7 +95,7 @@ PLAN 2.6 / 2.7 已改写（原方案存档在两节末尾）。
 
 ### T2（EPUB 导入 + 阅读器）—— 2026-11-04 完成，未部署
 
-提交：`6af04b9`（加 fflate、jsdom）、`6e6ed31`（T2 本体）。
+提交：`d218a21`（加 fflate、jsdom）、`4a793c9`（T2 本体）。
 
 **验收结果**
 
@@ -148,7 +149,7 @@ PLAN 2.6 / 2.7 已改写（原方案存档在两节末尾）。
 ### T3（标注管线 + 词库）—— 2026-11-04 完成（真跑已补），未部署
 
 **真跑（2026-11-04 补跑，去人设后的 prompt v2）**：第 1 章 4 组 84 条，锚定 83 条（**98.8%**），丢的 1 条是 quote 超 5 词被守卫拦；入库 quote **0 条超 5 词**；anchorFail / occFallback / 拒绝重试都是 0。"我会"（pluck）→ 全书不再显示，第 5、12 章请求的 `<known>` 里都有它。回看第 1 章 **0 次调用**。Haiku 6 组 $0.0148、Sonnet 对照 3 组 $0.088。截图 `shots/t3-ch{1,5,12}.png` + `-sonnet.png`，报告 `shots/t3-data/report.json`（`compare` 里是两边的 fun/vocab 条目原文，**好不好她看图拍板**）。
-第一次真跑撞到截断：Haiku 的 adaptive thinking 一组吃 4.3–5.6K token，原来 max_tokens 6000 不够，JSON 写到一半被切。已修（见 `c721ea2`：上限放宽 + 截断时 effort=low 重发一次），最终这趟 0 次重发。
+第一次真跑撞到截断：Haiku 的 adaptive thinking 一组吃 4.3–5.6K token，原来 max_tokens 6000 不够，JSON 写到一半被切。已修（见 `9f5f385`：上限放宽 + 截断时 effort=low 重发一次），最终这趟 0 次重发。
 
 （以下是当时没 key 时的说明，留着备查）脚本已备好，并用假模型（`--mock`）把整条链路跑通过一遍（第 1 章切组 → 标注 → "我会" → 后续请求带 `<known>` → 回看 0 调用 → Sonnet 对照 → 静态 HTML → 390px 截图）。有 key 后一条命令：
 ```
