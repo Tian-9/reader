@@ -1,0 +1,17 @@
+# 书只存本地，永不入仓（含水印的正版书一旦推上去等于连身份一起挂网上）
+books/
+*.epub
+
+# 构建产物和本地运行时
+dist/
+dev-dist/
+.wrangler/
+node_modules/
+
+# wrangler 本地 secret 文件
+.dev.vars
+.dev.vars.*
+.env
+.env.*
+
+.DS_Store

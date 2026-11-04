@@ -1,0 +1,5 @@
+# Cloudflare Pages：静态文件在 dist/，代理在 functions/api/anthropic/[[path]].ts。
+# 两个 secret 不写在这里：APP_TOKEN、ANTHROPIC_API_KEY 用 `wrangler pages secret put` 设（她自己敲）。
+name = "reader"
+pages_build_output_dir = "dist"
+compatibility_date = "2026-10-01"

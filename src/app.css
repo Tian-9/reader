@@ -1,0 +1,69 @@
+/* 手机优先。阅读器的重点是排版，字号/行距/段距都走变量，T2 的设置页直接改这几个。 */
+:root {
+  --bg: #f7f3ea;
+  --fg: #2b2620;
+  --muted: #8a8174;
+  --line: #e2dccf;
+  --card: #fffdf8;
+  --accent: #b5562b;
+  --ok: #3f7d4a;
+  --danger: #b3261e;
+
+  --read-font: 'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, 'Noto Serif', serif;
+  --ui-font: system-ui, -apple-system, 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', sans-serif;
+  --read-size: 19px;
+  --read-leading: 1.7;
+  --para-gap: 0.9em;
+
+  --gutter: 16px;
+  --bar-h: 52px;
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1c1a17;
+    --fg: #e6e0d4;
+    --muted: #9a9183;
+    --line: #34302a;
+    --card: #25221e;
+    --accent: #e08a5c;
+    --ok: #7fbf8a;
+    --danger: #f2a39d;
+  }
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--ui-font);
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+}
+
+button, input, select { font: inherit; color: inherit; }
+
+button {
+  min-height: 44px;
+  padding: 0 16px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--card);
+  cursor: pointer;
+}
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button:disabled { opacity: 0.5; }
+
+input[type='text'], input[type='password'], select {
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--card);
+}
+
+.muted { color: var(--muted); }
