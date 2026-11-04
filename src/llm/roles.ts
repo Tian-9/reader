@@ -17,14 +17,18 @@ export interface RoleConfig {
   label: string;
   model: ModelId;
   effort: Effort;
-  /** 正文 + 思考共用的 max_tokens 上限。代理卡 8000，这里不能超。 */
+  /**
+   * 正文 + 思考共用的 max_tokens 上限。代理卡 8000，这里不能超。
+   * 真跑实测（2026-11-04）：Haiku 5.5 effort=medium 标注一组时 adaptive thinking 吃掉 ~4.3K，
+   * 原来的 6000 只剩 ~1.7K 给 JSON，被截断。结构化输出撞上限时 callStructured 会用 effort=low 再发一次。
+   */
   maxTokens: number;
 }
 
 export const ROLES: Record<Purpose, RoleConfig> = {
-  annotate: { label: '自动标注', model: 'claude-haiku-5-5', effort: 'medium', maxTokens: 6000 },
-  tap: { label: '点词补注', model: 'claude-haiku-5-5', effort: 'medium', maxTokens: 400 },
-  summary: { label: '章节摘要', model: 'claude-haiku-5-5', effort: 'medium', maxTokens: 2000 },
+  annotate: { label: '自动标注', model: 'claude-haiku-5-5', effort: 'medium', maxTokens: 8000 },
+  tap: { label: '点词补注', model: 'claude-haiku-5-5', effort: 'medium', maxTokens: 2000 },
+  summary: { label: '章节摘要', model: 'claude-haiku-5-5', effort: 'medium', maxTokens: 4000 },
   chat: { label: '小克聊天', model: 'claude-sonnet-5-5', effort: 'medium', maxTokens: 4000 },
 };
 

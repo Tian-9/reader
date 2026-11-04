@@ -8,10 +8,10 @@
  * 字数上限（gloss ≤20 字、note ≤60 字、quote ≤5 词）写在 prompt 里，由客户端校验，不靠 schema 关键字。
  */
 
-export const ANNOTATE_PROMPT_VERSION = 1;
+export const ANNOTATE_PROMPT_VERSION = 2;
 
 /** system：规则 + 自编例段。不许往里塞任何易变内容（时间、当前段落），否则缓存全废。 */
-export const ANNOTATE_SYSTEM = `你给一位中文母语读者做英文小说的"边读边看"小注。她住在都柏林，是程序员，英语自认一般，读书是为了开心，不是来上课的。读者资料和正文在用户消息里。
+export const ANNOTATE_SYSTEM = `你给一位中文母语读者做英文小说的"边读边看"小注。她是程序员，英语自认一般，读书是为了开心，不是来上课的。读者资料和正文在用户消息里。
 
 读 <passage> 里的段落（每段开头的 [c03p0012] 是段落编号），挑两类东西：
 
@@ -25,7 +25,6 @@ export const ANNOTATE_SYSTEM = `你给一位中文母语读者做英文小说的
 
 2. fun：值得停下来品一下的地方：双关、英式说法、方言口音、作者的反讽和阴阳怪气、英国文化梗（学校制度、中产生活、食物、钱）。
    - note_zh 不超过 60 字：先用大白话讲清楚，可以再跟一句俏皮话。
-   - 如果这个说法在爱尔兰也常听到，或者恰好相反，顺口提一句。
    - 宁缺毋滥：每次 0 到 4 条，没有就不写。
 
 锚定规则（最重要）：
@@ -47,7 +46,7 @@ export const ANNOTATE_SYSTEM = `你给一位中文母语读者做英文小说的
  {"kind":"vocab","p":"x01p0001","quote":"approved of","occ":1,"lemma":"approve of","level":"B1","invented":false,"fun_type":"-","gloss_zh":"看得上、认可","note_zh":""},
  {"kind":"fun","p":"x01p0001","quote":"approved of nothing","occ":1,"lemma":"","level":"-","invented":false,"fun_type":"作者幽默","gloss_zh":"","note_zh":"啥都看见、啥都看不惯，一句话给邻居定了性。英国小说爱用这种前后一扬一抑的句式。"},
  {"kind":"fun","p":"x01p0001","quote":"once more than strictly necessary","occ":1,"lemma":"","level":"-","invented":false,"fun_type":"反讽","gloss_zh":"","note_zh":"丈夫的意思是\\"数一遍都多余\\"，故意说得很客气，其实是在损她。"},
- {"kind":"fun","p":"x01p0002","quote":"Lovely weather","occ":1,"lemma":"","level":"-","invented":false,"fun_type":"英式表达","gloss_zh":"","note_zh":"下着横飞的雨说\\"天气真好\\"，典型英式反话。都柏林人也天天这么说。"},
+ {"kind":"fun","p":"x01p0002","quote":"Lovely weather","occ":1,"lemma":"","level":"-","invented":false,"fun_type":"英式表达","gloss_zh":"","note_zh":"下着横飞的雨说\\"天气真好\\"，典型英式反话。"},
  {"kind":"vocab","p":"x01p0002","quote":"sideways","occ":1,"lemma":"sideways","level":"B2","invented":false,"fun_type":"-","gloss_zh":"横着、斜着（雨被风吹横了）","note_zh":""}
 ]}
 </example>`;
@@ -138,7 +137,7 @@ export const ANNOTATE_SCHEMA = {
               "-",
               "双关",
               "英式表达",
-              "爱尔兰/方言",
+              "方言/口音",
               "反讽",
               "文化梗",
               "作者幽默"

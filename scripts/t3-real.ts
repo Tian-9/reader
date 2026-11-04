@@ -72,7 +72,14 @@ async function realCreate(): Promise<CreateFn> {
   if (!process.env.ANTHROPIC_API_KEY) throw new Error('shell 里没有 ANTHROPIC_API_KEY（待 key）');
   const { default: Anthropic } = await import('@anthropic-ai/sdk');
   const client = new Anthropic({ maxRetries: 3 });
-  return (p) => client.messages.create(p);
+  return (p) => client.messages.create(p).then((m) => {
+    if (m.stop_reason === 'max_tokens') {
+      // 截断诊断：看是思考吃光了预算还是正文本身太长（不含 key）
+      const blocks = m.content.map((b) => b.type === 'text' ? { type: 'text', chars: b.text.length, tail: b.text.slice(-200) } : b.type === 'thinking' ? { type: 'thinking', chars: b.thinking.length } : { type: b.type });
+      console.log('[截断诊断]', JSON.stringify({ model: m.model, max_tokens: p.max_tokens, usage: m.usage, blocks }));
+    }
+    return m;
+  });
 }
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');

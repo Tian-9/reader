@@ -62,7 +62,7 @@ export type ReaderLevel = 'A1' | 'A2' | 'B1' | 'B2' | 'C1' | 'C2';
 export const READER_LEVELS: ReaderLevel[] = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
 
 export type AnnotationKind = 'vocab' | 'fun';
-export type FunType = '-' | '双关' | '英式表达' | '爱尔兰/方言' | '反讽' | '文化梗' | '作者幽默';
+export type FunType = '-' | '双关' | '英式表达' | '方言/口音' | '反讽' | '文化梗' | '作者幽默';
 
 /** 模型按 schema 返回的一条（字段名和 JSON 一致，snake_case）。schema 本体在 src/llm/prompts/annotate.ts。 */
 export interface AnnotationItem {

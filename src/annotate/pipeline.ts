@@ -10,7 +10,7 @@ import type { ReaderDB } from '../db/db';
 import { baseParams } from '../llm/client';
 import { recordUsage } from '../llm/ledger';
 import { ANNOTATE_PROMPT_VERSION, ANNOTATE_SCHEMA, ANNOTATE_SYSTEM } from '../llm/prompts/annotate';
-import { REFUSAL_RETRY_MODEL, type ModelId } from '../llm/roles';
+import { REFUSAL_RETRY_MODEL, type Effort, type ModelId } from '../llm/roles';
 import {
   parseParaId,
   type Annotation,
@@ -75,13 +75,13 @@ export async function callStructured(
   },
 ): Promise<{ json: unknown; model: string; retried: boolean }> {
   const s = ctx.settings();
-  const send = async (model?: ModelId) => {
+  const send = async (model?: ModelId, effort?: Effort) => {
     const p = baseParams(o.purpose, s, model);
     const msg = await ctx.create({
       ...p,
       system: o.system,
       messages: [{ role: 'user', content: o.user }],
-      output_config: { ...p.output_config, format: { type: 'json_schema', schema: o.schema } },
+      output_config: { effort: effort ?? p.output_config.effort, format: { type: 'json_schema', schema: o.schema } },
     });
     await recordUsage(ctx.d, { purpose: o.purpose, model: msg.model || p.model, usage: msg.usage, bookId: o.bookId });
     return { msg, model: p.model };
@@ -94,6 +94,12 @@ export async function callStructured(
     ctx.log?.(`[${o.purpose}] Haiku 拒绝，用 ${REFUSAL_RETRY_MODEL} 重试一次`);
     ({ msg, model } = await send(REFUSAL_RETRY_MODEL));
     retried = true;
+    if (msg.stop_reason === 'refusal') throw new RefusedError(model);
+  }
+  if (msg.stop_reason === 'max_tokens' && baseParams(o.purpose, s, model).output_config.effort !== 'low') {
+    // 思考和正文共用 max_tokens：adaptive thinking 想多了会把 JSON 挤断。用 effort=low 再发一次（思考少很多）。
+    ctx.log?.(`[${o.purpose}] 输出被截断（思考占了大头），用 effort=low 重发一次`);
+    ({ msg, model } = await send(model, 'low'));
     if (msg.stop_reason === 'refusal') throw new RefusedError(model);
   }
   if (msg.stop_reason === 'max_tokens') throw new TruncatedError();

@@ -107,6 +107,29 @@ describe('annotateChunk', () => {
     await expect(annotateChunk(ctx(), chunk)).rejects.toThrow(/拒绝/);
     expect((await d.chunks.get([BOOK, 'c01p0001']))?.status).toBe('error');
   });
+
+  it('输出被 max_tokens 截断（思考吃光预算）→ effort=low 重发一次，两次都记账', async () => {
+    d = new ReaderDB('t-pipe-4');
+    await d.paras.bulkPut(rows(1, CH1));
+    replies.push(() => fakeMessage(null, { stop: 'max_tokens' }));
+    replies.push(() => fakeMessage({ items: [item({ quote: 'nothing', lemma: 'nothing' })] }));
+    const chunk = { bookId: BOOK, chunkId: 'c01p0001', paraIds: ['c01p0001'], status: 'todo' as const, model: 'claude-haiku-5-5', promptVersion: 1, levelFloor: 'A2' as const };
+    const stats = await annotateChunk(ctx(), chunk);
+    expect(calls.map((c) => c.output_config?.effort)).toEqual(['medium', 'low']);
+    expect(calls.map((c) => c.model)).toEqual(['claude-haiku-5-5', 'claude-haiku-5-5']);
+    expect(stats.stored).toBe(1);
+    expect(await d.ledger.count()).toBe(2);
+  });
+
+  it('low 也截断 → chunk 记 error 并抛 TruncatedError', async () => {
+    d = new ReaderDB('t-pipe-5');
+    await d.paras.bulkPut(rows(1, CH1));
+    replies.push(() => fakeMessage(null, { stop: 'max_tokens' }), () => fakeMessage(null, { stop: 'max_tokens' }));
+    const chunk = { bookId: BOOK, chunkId: 'c01p0001', paraIds: ['c01p0001'], status: 'todo' as const, model: 'claude-haiku-5-5', promptVersion: 1, levelFloor: 'A2' as const };
+    await expect(annotateChunk(ctx(), chunk)).rejects.toThrow(/截断/);
+    expect(calls).toHaveLength(2);
+    expect((await d.chunks.get([BOOK, 'c01p0001']))?.status).toBe('error');
+  });
 });
 
 describe('预取队列', () => {

@@ -1,12 +1,16 @@
 #!/usr/bin/env bash
 # 有 key 时一条命令跑完全部真跑验收：T3（标注）→ T4（小克聊天 + 摘要）。
 #   bash scripts/real-all.sh
-# key 从 shell 的 ANTHROPIC_API_KEY 拿；没有就读 ~/.config/reader/.env（ANTHROPIC_API_KEY=…）。不打印 key。
+# key 从 shell 的 ANTHROPIC_API_KEY 拿；没有就读 ~/.config/reader/key（一行，就是 key 本身），再没有读 ~/.config/reader/.env（ANTHROPIC_API_KEY=…）。不打印 key。
 # 花费上限合计 $2：T3 默认 $1.5、T4 默认 $0.5（可用 BUDGET_T3 / BUDGET_T4 改）。超了脚本自己停并写半截报告。
 # 结果：shots/t3-*.png、shots/t3-data/report.json、shots/t4-data/report.json（shots/ 不入仓）。
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+if [ -z "${ANTHROPIC_API_KEY:-}" ] && [ -f "$HOME/.config/reader/key" ]; then
+  # 本机 key 文件：一行就是 key 本身（chmod 600）。去掉空白/换行，不回显。
+  ANTHROPIC_API_KEY="$(tr -d '[:space:]' < "$HOME/.config/reader/key")"
+fi
 if [ -z "${ANTHROPIC_API_KEY:-}" ] && [ -f "$HOME/.config/reader/.env" ]; then
   set -a
   # shellcheck disable=SC1091

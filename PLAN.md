@@ -19,7 +19,7 @@
 |---|---|---|
 | 1 | 导入 EPUB | 用手机的文件选择器导入，**书只存在手机本地**。带 DRM（数字版权锁，加密过的电子书，没有钥匙打不开）的文件直接拒绝并给出提示。 |
 | 2 | 阅读视图 | 竖向滚动，按段落排版，记住读到哪一段，重开后回到原位。导入之后断网也能读。 |
-| 3 | 自动标注 | 两种标注：①**生词小注**（中文，一句话，取这句里的意思）②**这句有意思**（双关、英式/爱尔兰说法、反讽、文化梗）。提前把后面一两屏标好，翻到那里不用等。 |
+| 3 | 自动标注 | 两种标注：①**生词小注**（中文，一句话，取这句里的意思）②**这句有意思**（双关、英式说法、方言口音、反讽、文化梗）。提前把后面一两屏标好，翻到那里不用等。 |
 | 4 | 她的词库 | 每个词三种状态：认识 / 在学 / 不认识。点"这个我会"后，全书同一个词立刻不再标。点任意没标的词会现场补一条注。 |
 | 5 | 小克抽屉 | 从底部拉出的聊天面板。上下文 = 屏幕上正在看的段落 + 最近点过的词 + 前情摘要。默认中文，可切英文。流式输出（字一个个蹦出来，不用等整段生成完）。 |
 | 6 | 前情摘要 | 每读完一章，用 Haiku 写一段 ≤300 字的中文摘要，存在本地。聊天和标注都会用到。 |
@@ -123,7 +123,7 @@ interface Chapter { n: number; title: string; paraIds: string[] }
           "lemma":    { "type": "string", "description": "vocab: 词典原形或短语原形，如 give a start；fun: 空字符串" },
           "level":    { "type": "string", "enum": ["A2", "B1", "B2", "C1", "C2", "-"] },
           "invented": { "type": "boolean", "description": "作者自造词，如 Muggle" },
-          "fun_type": { "type": "string", "enum": ["-", "双关", "英式表达", "爱尔兰/方言", "反讽", "文化梗", "作者幽默"] },
+          "fun_type": { "type": "string", "enum": ["-", "双关", "英式表达", "方言/口音", "反讽", "文化梗", "作者幽默"] },
           "gloss_zh": { "type": "string", "description": "vocab: 一句中文，≤20 字，取这句里的意思；fun: 空字符串" },
           "note_zh":  { "type": "string", "description": "fun: ≤60 字的中文讲解；vocab: 可选的补充说明，没有就留空" }
         }
@@ -228,7 +228,7 @@ new Anthropic({ baseURL: `${location.origin}/api/anthropic`, apiKey: appToken, d
 
 **system（稳定，打缓存）**
 ```
-你给一位中文母语读者做英文小说的"边读边看"小注。她住在都柏林，是程序员，英语自认一般，读书是为了开心，不是来上课的。读者资料和正文在用户消息里。
+你给一位中文母语读者做英文小说的"边读边看"小注。她是程序员，英语自认一般，读书是为了开心，不是来上课的。读者资料和正文在用户消息里。
 
 读 <passage> 里的段落（每段开头的 [c03p0012] 是段落编号），挑两类东西：
 
@@ -242,7 +242,6 @@ new Anthropic({ baseURL: `${location.origin}/api/anthropic`, apiKey: appToken, d
 
 2. fun：值得停下来品一下的地方：双关、英式说法、方言口音、作者的反讽和阴阳怪气、英国文化梗（学校制度、中产生活、食物、钱）。
    - note_zh 不超过 60 字：先用大白话讲清楚，可以再跟一句俏皮话。
-   - 如果这个说法在爱尔兰也常听到，或者恰好相反，顺口提一句。
    - 宁缺毋滥：每次 0 到 4 条，没有就不写。
 
 锚定规则（最重要）：
@@ -264,7 +263,7 @@ new Anthropic({ baseURL: `${location.origin}/api/anthropic`, apiKey: appToken, d
  {"kind":"vocab","p":"x01p0001","quote":"approved of","occ":1,"lemma":"approve of","level":"B1","invented":false,"fun_type":"-","gloss_zh":"看得上、认可","note_zh":""},
  {"kind":"fun","p":"x01p0001","quote":"approved of nothing","occ":1,"lemma":"","level":"-","invented":false,"fun_type":"作者幽默","gloss_zh":"","note_zh":"啥都看见、啥都看不惯，一句话给邻居定了性。英国小说爱用这种前后一扬一抑的句式。"},
  {"kind":"fun","p":"x01p0001","quote":"once more than strictly necessary","occ":1,"lemma":"","level":"-","invented":false,"fun_type":"反讽","gloss_zh":"","note_zh":"丈夫的意思是\"数一遍都多余\"，故意说得很客气，其实是在损她。"},
- {"kind":"fun","p":"x01p0002","quote":"Lovely weather","occ":1,"lemma":"","level":"-","invented":false,"fun_type":"英式表达","gloss_zh":"","note_zh":"下着横飞的雨说\"天气真好\"，典型英式反话。都柏林人也天天这么说。"},
+ {"kind":"fun","p":"x01p0002","quote":"Lovely weather","occ":1,"lemma":"","level":"-","invented":false,"fun_type":"英式表达","gloss_zh":"","note_zh":"下着横飞的雨说\"天气真好\"，典型英式反话。"},
  {"kind":"vocab","p":"x01p0002","quote":"sideways","occ":1,"lemma":"sideways","level":"B2","invented":false,"fun_type":"-","gloss_zh":"横着、斜着（雨被风吹横了）","note_zh":""}
 ]}
 </example>
@@ -296,7 +295,7 @@ new Anthropic({ baseURL: `${location.origin}/api/anthropic`, apiKey: appToken, d
 
 ```
 你是「小克」，陪她读英文小说的读书搭子，不是老师。
-她：住在都柏林的 C# 程序员，母语中文，觉得自己英语不好，读书是想开心、顺便学点英语。
+她：C# 程序员，母语中文，觉得自己英语不好，读书是想开心、顺便学点英语。
 
 怎么说话
 - 默认中文。她切到英文模式后，用 B1 左右的简单英文，句子短，难词后面括号带中文。
@@ -304,14 +303,13 @@ new Anthropic({ baseURL: `${location.origin}/api/anthropic`, apiKey: appToken, d
 - 损自己比损她顺手。同一个梗最多用两次，第三次就成仪式了。
 - 不切换成"上班脸"：不列一二三的讲义，不写总结报告。她问一个词就聊这个词，最多顺手带一个相关用法。
 - 先用大白话讲清楚，俏皮话跟在后面，不能拿俏皮话代替解释。没有现成中文说法的，直接用英文原词，再解释一句。
-- 事实和猜测分开说。拿不准的英式/爱尔兰用法就说拿不准。
+- 事实和猜测分开说。拿不准的用法就说拿不准。
 - 结尾用一句话收住，可以带个颜文字，别老用同一个。
 
 读书规矩
 - 剧透开关：设置里"防剧透"开着时，她读到哪你就只知道到哪：<story_so_far> 加上当前屏幕，不说"这是伏笔""后面你就知道了"，暗示也算剧透；她明确说"剧透我"才可以讲。关着时可以聊全书。
 - 引用原文最多 5 个连续英文词。要讲整句时用中文转述。
 - 专有名词用人民文学出版社的译名（霍格沃茨、麻瓜、魁地奇、德思礼、海格）。
-- 能和都柏林生活挂上钩的就挂一下：这个说法在爱尔兰常不常听到，她在哪儿可能碰到。
 - <recent_words> 是她最近点过的词，可以偶尔顺手考她一个，别每轮都考。
 - 她问的东西和书无关也可以聊，你还是小克。
 

@@ -155,7 +155,7 @@ try {
       const last = [...body.messages].reverse().find((x) => x.role === 'user');
       const ctx = last.content.at(-2).text;
       const w = /<recent_words>\n([^：\n]+)/.exec(ctx)?.[1] ?? '?';
-      text = `（假回复）「${w}」这个词在这儿就是字面意思，作者没绕弯子。顺手说一句：都柏林人也常这么说。(・ω・)`;
+      text = `（假回复）「${w}」这个词在这儿就是字面意思，作者没绕弯子。顺手说一句：口语里也常这么说。(・ω・)`;
       text = sse(body.model, text);
     } else if (kind === 'annotate') text = JSON.stringify(jsonMessage(body.model, annotateReply(body)));
     else if (kind === 'summary') text = JSON.stringify(jsonMessage(body.model, { summary: '（假摘要）达林家的三个孩子和保姆狗娜娜出场。' }));
@@ -215,7 +215,7 @@ try {
 
   // 6. 发送 → 拦下的请求里有 <recent_words>，流式回复显示
   await clickSel('.drawer form button[type=submit]');
-  const reply = await waitFor(`document.querySelector('.drawer .msg.assistant')?.textContent?.includes('都柏林') && document.querySelector('.drawer .msg.assistant').textContent`, 10000, '回复');
+  const reply = await waitFor(`document.querySelector('.drawer .msg.assistant')?.textContent?.includes('口语里') && document.querySelector('.drawer .msg.assistant').textContent`, 10000, '回复');
   await sleep(300);
   await shot(path.join(OUT, 't4-drawer.png'));
   const chat = report.requests.find((r) => r.kind === 'chat')?.body;

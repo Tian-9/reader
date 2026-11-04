@@ -67,8 +67,10 @@ test/                           单测（vitest + fake-indexeddb）。不能放�
 - 开发机是 macOS（文件系统不区分大小写）：两个文件名不能只差大小写。
 - **聊天历史只追加不改写。** 助手回复连 thinking 块原样存、原样发回；输出守卫只改显示（ChatRecord.display），不改 messages。改历史 = 缓存从那里断 + Sonnet/Opus 5.5 的 thinking 签名失效（新账号直接 400）。中途 `role: "system"` 消息必须紧跟在 user 后面，不能放 messages[0]。
 - **页边 ※ 别伸出屏幕。** ReaderView 的 article 右边留了 14px；伸出去手机上整页会左右晃，headless 里还会把点击坐标带偏。
+- **本机真跑用的 key 在 `~/.config/reader/key`（一行，chmod 600），`scripts/real-all.sh` 自动读。** 别 cat、别 echo、别写进报告或别的文件。
 - **$state.raw 里的数组被就地 push 后，重新赋值外层对象时数组也要换新**（`{...s, display: [...s.display]}`），不然 $derived 看不到变化。
 
 ## 文案
 
 - 界面只做中文。术语第一次出现带一句大白话解释。
+- 人设功能（地域梗之类）她说想到再加，现在不加。prompt 里不写她住哪、不提"某地人怎么说"。

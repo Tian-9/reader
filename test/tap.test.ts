@@ -1,3 +1,4 @@
+import { ROLES } from '../src/llm/roles';
 import type { MessageCreateParamsNonStreaming } from '@anthropic-ai/sdk/resources/messages';
 import { afterEach, describe, expect, it } from 'vitest';
 import { REDACTED } from '../src/annotate/guard';
@@ -44,7 +45,7 @@ describe('tapAnnotate', () => {
     const ann = await tapAnnotate(ctx, BOOK, p!, { paraId: p!.id, start: s, end: s + 8, surface: 'grumbled' });
     expect(calls).toHaveLength(1);
     expect(calls[0]!.model).toBe('claude-haiku-5-5');
-    expect(calls[0]!.max_tokens).toBe(400);
+    expect(calls[0]!.max_tokens).toBe(ROLES.tap.maxTokens);
     expect((calls[0]!.system as { text: string }[])[0]!.text).toBe(TAP_SYSTEM);
     expect(String(calls[0]!.messages[0]!.content)).toBe(`<level>B1</level>\n<word>grumbled</word>\n<sentence>${p!.text}</sentence>`);
     expect(ann).toMatchObject({ kind: 'vocab', chunkId: 'tap', lemma: 'grumble', level: 'B2', quote: 'grumbled', start: s, end: s + 8 });

@@ -29,7 +29,7 @@
     mk(at(0, 'strictly'), { lemma: 'strictly', level: 'B2', glossZh: '严格说来' }),
     mk(at(0, 'once more than strictly necessary'), { kind: 'fun', funType: '反讽', level: '-', noteZh: '丈夫的意思是"数一遍都多余"，故意说得很客气，其实是在损她。' }),
     mk(at(1, 'sideways'), { lemma: 'sideways', level: 'B2', glossZh: '横着、斜着（雨被风吹横了）' }),
-    mk(at(1, 'Lovely weather'), { kind: 'fun', funType: '英式表达', level: '-', noteZh: '下着横飞的雨说"天气真好"，典型英式反话。都柏林人也天天这么说。' }),
+    mk(at(1, 'Lovely weather'), { kind: 'fun', funType: '英式表达', level: '-', noteZh: '下着横飞的雨说"天气真好"，典型英式反话。' }),
     mk(at(1, 'reluctant'), { lemma: 'reluctant', level: 'B2', glossZh: '不情不愿的' }),
     mk(at(2, 'Sideways'), { lemma: 'sideways', level: 'B2', glossZh: '斜着的（眼神）' }),
     mk(at(2, 'spectacles'), { lemma: 'spectacles', level: 'C1', glossZh: '眼镜（老派说法）' }),
