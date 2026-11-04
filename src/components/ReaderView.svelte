@@ -13,7 +13,7 @@
   import AnnotationLayer from './AnnotationLayer.svelte';
   import ImportButton from './ImportButton.svelte';
   import ParaText from './ParaText.svelte';
-  import { reading, WORD_TAP_EVENT, type WordTap } from './reading.svelte';
+  import { FOCUS_ANNOTATION_EVENT, reading, WORD_TAP_EVENT, type ChapterVocabItem, type WordTap } from './reading.svelte';
 
   let {
     bookId,
@@ -45,6 +45,8 @@
   let chapterN = $state(0);
   let paras: ParaRow[] = $state([]);
   let panel: 'none' | 'toc' | 'type' = $state('none');
+  /** 目录面板里的页签：章节目录 / 本章生词 */
+  let tocTab: 'chapters' | 'words' = $state('chapters');
   let books: Book[] = $state([]);
   let shownNotice = $state('');
   let loadError = $state('');
@@ -58,6 +60,8 @@
   const leading = $derived(settings.readLeading ?? 1.7);
   const chapter = $derived(chapters.find((c) => c.n === chapterN));
   const chapterParaIds = $derived(paras.map((p) => p.id));
+  const paraTextById = $derived(new Map(paras.map((p) => [p.id, p.text])));
+  const paraText = (id: string) => paraTextById.get(id);
 
   $effect(() => {
     shownNotice = notice;
@@ -252,6 +256,14 @@
 
   // ───────── 目录 / 换书 ─────────
 
+  /** 本章生词：点一条 → 关面板、滚到那段，标注层把那个词闪一下 */
+  async function gotoVocab(v: ChapterVocabItem) {
+    panel = 'none';
+    await tick();
+    article?.querySelector<HTMLElement>(`[data-pid="${v.paraId}"]`)?.scrollIntoView({ block: 'start' });
+    window.dispatchEvent(new CustomEvent(FOCUS_ANNOTATION_EVENT, { detail: v.id }));
+  }
+
   async function openToc() {
     if (panel === 'toc') {
       panel = 'none';
@@ -303,8 +315,17 @@
         {#if afterPara}{@render afterPara(p)}{/if}
       {/each}
       <!-- T3 标注层（T4 接线）：生词虚线用 Highlight API 画在上面的文字上，※ 画在 article 内的绝对定位浮层里 -->
-      <AnnotationLayer {bookId} root={article} paraIds={chapterParaIds} currentParaId={reading.topParaId} />
+      <AnnotationLayer
+        {bookId}
+        root={article}
+        paraIds={chapterParaIds}
+        currentParaId={reading.topParaId}
+        visibleParaIds={reading.visibleParaIds}
+        {paraText}
+        publishChapterVocab
+      />
     </article>
+    <!-- 章末导航在正文流里；下面留够高度，滚到底时它停在右下角"小克"按钮上方，不会被盖住 -->
     <nav class="chapnav">
       {#if prev}<button onclick={() => openChapter(prev.n)}>← 上一章</button>{:else}<span></span>{/if}
       {#if next}<button class="primary" onclick={() => openChapter(next.n)}>下一章 →</button>{:else}<span class="muted">全书完</span>{/if}
@@ -316,12 +337,36 @@
     <div class="sheet" role="dialog" aria-label={panel === 'toc' ? '目录' : '字号和行距'}>
       {#if panel === 'toc'}
         <p class="book">{book?.title}{book?.author ? ` · ${book.author}` : ''}</p>
+        <div class="tabs" role="tablist">
+          <button role="tab" aria-selected={tocTab === 'chapters'} class:on={tocTab === 'chapters'} onclick={() => (tocTab = 'chapters')}>目录</button>
+          <button role="tab" aria-selected={tocTab === 'words'} class:on={tocTab === 'words'} onclick={() => (tocTab = 'words')} data-testid="tab-chapter-words">
+            本章生词 <span class="count">{reading.chapterVocab.length}</span>
+          </button>
+        </div>
+        {#if tocTab === 'words'}
+          {#if reading.chapterVocab.length}
+            <p class="sub">{chapter?.title} · 按出现顺序，点一条跳到那段</p>
+            <ol class="vlist" data-testid="chapter-words">
+              {#each reading.chapterVocab as v (v.id)}
+                <li>
+                  <button onclick={() => gotoVocab(v)}>
+                    <span class="lemma" lang="en">{v.lemma}</span>
+                    <span class="gloss">{v.glossZh}</span>
+                  </button>
+                </li>
+              {/each}
+            </ol>
+          {:else}
+            <p class="muted small">这一章还没有标出生词（还在标，或者都是你认识的）。</p>
+          {/if}
+        {:else}
         <ol class="toc">
           {#each chapters as c (c.n)}
             <li><button class:cur={c.n === chapterN} onclick={() => openChapter(c.n)}>{c.title}</button></li>
           {/each}
         </ol>
-        {#if books.length > 1}
+        {/if}
+        {#if tocTab === 'chapters' && books.length > 1}
           <p class="sub">其他书</p>
           <ul class="toc">
             {#each books.filter((b) => b.id !== bookId) as b (b.id)}
@@ -329,10 +374,12 @@
             {/each}
           </ul>
         {/if}
+        {#if tocTab === 'chapters'}
         <div class="more">
           <ImportButton label="导入另一本" primary={false} onimported={(r) => switchBook(r.bookId, r)} />
           <p class="muted small">书只存在这台手机里，不会上传。</p>
         </div>
+        {/if}
       {:else}
         <div class="row">
           <span>字号</span>
@@ -431,7 +478,9 @@
     justify-content: space-between;
     align-items: center;
     gap: 12px;
-    margin: 2.5em 0 3em;
+    margin: 2.5em 0 0;
+    /* 小克按钮固定在右下（离底 52px、高 44px）：页面底部留 120px，滚到底时"下一章"停在它上方 */
+    padding-bottom: calc(120px + env(safe-area-inset-bottom));
   }
   .scrim {
     position: fixed;
@@ -482,6 +531,60 @@
     border-radius: 8px;
     background: transparent;
     font-size: 15px;
+  }
+  .tabs {
+    display: flex;
+    gap: 6px;
+    margin: 4px 0 10px;
+  }
+  .tabs button {
+    flex: 1;
+    min-height: 36px;
+    font-size: 14px;
+    border-radius: 999px;
+    background: transparent;
+  }
+  .tabs button.on {
+    background: var(--card);
+    color: var(--accent);
+    border-color: var(--accent);
+    font-weight: 600;
+  }
+  .count {
+    font-size: 12px;
+    color: var(--muted);
+    font-weight: 400;
+  }
+  .vlist {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .vlist button {
+    width: 100%;
+    min-height: 44px;
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    text-align: left;
+    border: 0;
+    border-bottom: 1px solid var(--line);
+    border-radius: 0;
+    background: transparent;
+    padding: 8px 4px;
+  }
+  .vlist .lemma {
+    flex: none;
+    max-width: 45%;
+    font-family: var(--read-font);
+    font-size: 16px;
+    overflow-wrap: anywhere;
+  }
+  .vlist .gloss {
+    flex: 1;
+    min-width: 0;
+    font-size: 14px;
+    color: var(--muted);
   }
   .toc button.cur {
     background: var(--card);

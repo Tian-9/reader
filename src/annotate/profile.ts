@@ -7,6 +7,7 @@
  */
 import type { ReaderDB } from '../db/db';
 import { parseParaId, type ParaRow, type ReaderLevel, type Word } from '../types';
+import { isCommonWord } from './visible';
 import { LEVEL_INDEX, normLemma } from './words';
 
 export const KNOWN_SAMPLE = 60;
@@ -17,10 +18,13 @@ const STORY_MAX_CHARS = 600;
 
 /**
  * <known> 样本：最近 60 个标为认识的词，优先选接近阈值的。
- * 先保最近 10 个，其余从最近 200 个里按"离阈值的级距"排（同距按新旧）。
+ * 先保最近 10 个，其余从最近 200 个里按"离阈值的级距"排（同距按新旧）。常用词表里的词不进样本。
  */
 export function knownSample(words: Word[], threshold: ReaderLevel, n = KNOWN_SAMPLE): string[] {
-  const known = words.filter((w) => w.status === 'known').sort((a, b) => b.updatedAt - a.updatedAt);
+  // 常用词表里的词显示层反正会藏，不用占 <known> 的名额（省 token）
+  const known = words
+    .filter((w) => w.status === 'known' && !isCommonWord(w.lemma, threshold))
+    .sort((a, b) => b.updatedAt - a.updatedAt);
   const keep = known.slice(0, Math.min(KNOWN_RECENT_KEEP, n));
   const t = LEVEL_INDEX[threshold]!;
   const dist = (w: Word) => (w.level && w.level !== '-' ? Math.abs(LEVEL_INDEX[w.level]! - t) : 2.5);
@@ -33,10 +37,13 @@ export function knownSample(words: Word[], threshold: ReaderLevel, n = KNOWN_SAM
   return [...keep, ...rest].map((w) => w.lemma);
 }
 
-/** <unknown> 样本：最近 40 个点过或标为不认识/在学的词。 */
-export function unknownSample(words: Word[], n = UNKNOWN_SAMPLE): string[] {
+/**
+ * <unknown> 样本：最近 40 个点过或标为不认识/在学的词。
+ * 常用词表里的词（多半是误点出来的 unknown）不进样本，除非她自己加进了生词本（learning）。
+ */
+export function unknownSample(words: Word[], threshold?: ReaderLevel, n = UNKNOWN_SAMPLE): string[] {
   return words
-    .filter((w) => w.status !== 'known')
+    .filter((w) => w.status !== 'known' && (w.status === 'learning' || !threshold || !isCommonWord(w.lemma, threshold)))
     .sort((a, b) => b.updatedAt - a.updatedAt)
     .slice(0, n)
     .map((w) => w.lemma);

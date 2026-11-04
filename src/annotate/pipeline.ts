@@ -20,11 +20,12 @@ import {
   type GuardEvent,
   type Purpose,
   type Settings,
+  type ReaderLevel,
 } from '../types';
 import { resolveAnchor } from './anchor';
 import { overlapIndex, redactOverlap } from './guard';
 import { alreadyNoted, buildAnnotateUser, knownFromUser, knownSample, storySoFar, unknownSample } from './profile';
-import { levelFloor } from './visible';
+import { hiddenReason, levelFloor } from './visible';
 
 export type CreateFn = (params: MessageCreateParamsNonStreaming) => Promise<Message>;
 
@@ -139,7 +140,7 @@ export interface ProcessResult {
 export function processItems(
   items: unknown[],
   paras: { id: string; text: string }[],
-  meta: { bookId: string; chunkId: string; model: string; now?: number },
+  meta: { bookId: string; chunkId: string; model: string; now?: number; level?: ReaderLevel },
 ): ProcessResult {
   const byId = new Map(paras.map((p) => [p.id, p.text]));
   const index = overlapIndex(paras.map((p) => p.text));
@@ -184,13 +185,18 @@ export function processItems(
     }
     const id = annotationId(meta.bookId, raw.p, r.start, r.end, raw.kind);
     if (out.has(id)) continue;
+    const quote = text.slice(r.start, r.end);
+    // 两道硬闸的判断入库留底（显示时 visible.ts 按当前水平重算）
+    const hidden = raw.kind === 'vocab' && meta.level
+      ? hiddenReason({ kind: 'vocab', lemma: raw.lemma, quote, start: r.start, invented: !!raw.invented }, meta.level, text)
+      : null;
     out.set(id, {
       id,
       bookId: meta.bookId,
       chunkId: meta.chunkId,
       paraId: raw.p,
       kind: raw.kind,
-      quote: text.slice(r.start, r.end),
+      quote,
       start: r.start,
       end: r.end,
       lemma: raw.kind === 'vocab' ? fields.lemma.trim() : '',
@@ -201,6 +207,7 @@ export function processItems(
       noteZh: fields.note_zh.trim(),
       model: meta.model,
       createdAt: meta.now ?? Date.now(),
+      ...(hidden ? { hiddenReason: hidden } : {}),
     });
   }
   stats.stored = out.size;
@@ -228,7 +235,7 @@ export async function annotateChunk(
     level: s.level,
     floor,
     known: knownSample(words, s.level),
-    unknown: unknownSample(words),
+    unknown: unknownSample(words, s.level),
     story: await storySoFar(d, chunk.bookId, chapter),
     noted: await alreadyNoted(d, chunk.bookId, chapter, chunk.chunkId),
     paras,
@@ -249,6 +256,7 @@ export async function annotateChunk(
       bookId: chunk.bookId,
       chunkId: chunk.chunkId,
       model,
+      level: s.level,
     });
     const full: ChunkStats = { ...stats, refusalRetried: retried };
     await d.transaction('rw', [d.annotations, d.chunks, d.guardEvents], async () => {

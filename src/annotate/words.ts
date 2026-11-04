@@ -68,11 +68,16 @@ export function noteTapped(d: ReaderDB, w: WordInput): Promise<Word> {
   }));
 }
 
-export function lemmaSets(words: Word[]): { known: Set<string>; marked: Set<string> } {
+/** known = "我会"；marked = 不认识 + 在学（不看等级都显示）；learning = 她自己点了"加入生词本"的（不受常用词/专有名词闸限制）。 */
+export function lemmaSets(words: Word[]): { known: Set<string>; marked: Set<string>; learning: Set<string> } {
   const known = new Set<string>();
   const marked = new Set<string>();
-  for (const w of words) (w.status === 'known' ? known : marked).add(w.lemma);
-  return { known, marked };
+  const learning = new Set<string>();
+  for (const w of words) {
+    (w.status === 'known' ? known : marked).add(w.lemma);
+    if (w.status === 'learning') learning.add(w.lemma);
+  }
+  return { known, marked, learning };
 }
 
 export const LEVEL_INDEX: Record<string, number> = Object.fromEntries(READER_LEVELS.map((l, i) => [l, i]));

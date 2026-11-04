@@ -8,7 +8,8 @@ import { TAP_SYSTEM, buildTapUser } from '../llm/prompts/tap';
 import type { Annotation, Level, Para, WordTapDetail } from '../types';
 import { overlapIndex, redactOverlap } from './guard';
 import { annotationId, callStructured, type AnnotateCtx } from './pipeline';
-import { noteTapped } from './words';
+import { hiddenReason } from './visible';
+import { lemmaSets, noteTapped, normLemma } from './words';
 
 export const TAP_CHUNK_ID = 'tap';
 
@@ -89,7 +90,11 @@ export async function tapAnnotate(
     model,
     createdAt: Date.now(),
   };
+  // 两道硬闸（常用词 / 句中大写的人名地名）：卡片照样给她看，但不划虚线、不计入词库（她自己加过生词本的除外）
+  const hidden = hiddenReason(ann, ctx.settings().level, para.text);
+  if (hidden) ann.hiddenReason = hidden;
   await ctx.d.annotations.put(ann);
-  await noteTapped(ctx.d, { lemma, level, glossZh: ann.glossZh, bookId, paraId: para.id });
+  const learning = lemmaSets(await ctx.d.words.toArray()).learning.has(normLemma(lemma));
+  if (!hidden || learning) await noteTapped(ctx.d, { lemma, level, glossZh: ann.glossZh, bookId, paraId: para.id });
   return ann;
 }

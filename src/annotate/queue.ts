@@ -71,13 +71,44 @@ export class Annotator {
     return task;
   }
 
-  /** 读到 paraId：等 k、k+1，后台发 k+2。 */
-  async ensureAround(bookId: string, paraId: string): Promise<void> {
+  /**
+   * 读到 paraId：等 k、k+1，后台发 k+2。
+   * onPending：k、k+1 里还没标好的组（一开始报一次，每标好一组再报一次，最后是 []）。界面拿它和屏幕上的段落比，
+   * 决定显示"标注中…"还是"预取下一段"（见 pillState）。k+2 是后台的，不报。
+   */
+  async ensureAround(bookId: string, paraId: string, onPending?: (pending: ChunkRow[]) => void): Promise<void> {
     const [k, k1, k2] = await this.chunksFrom(bookId, paraId, 3);
-    const must = [k, k1].filter((c): c is ChunkRow => !!c).map((c) => this.ensure(c));
+    const must = [k, k1].filter((c): c is ChunkRow => !!c);
+    let pending = must.filter((c) => !isChunkDone(c));
+    onPending?.(pending);
+    const tasks = must.map((c) =>
+      this.ensure(c).then(() => {
+        if (!pending.includes(c)) return;
+        pending = pending.filter((x) => x !== c);
+        onPending?.(pending);
+      }),
+    );
     if (k2) this.ensure(k2).catch((e) => this.ctx.log?.('[annotate] 后台预取失败', String(e)));
-    await Promise.all(must);
+    try {
+      await Promise.all(tasks);
+    } finally {
+      if (pending.length) onPending?.([]);
+    }
   }
+}
+
+/**
+ * 右下角小牌子的状态：
+ * - 'current'：屏幕上看得见的段落还有没标好的 → "标注中…"
+ * - 'prefetch'：看得见的都标好了，只是在等下一组 → 不打扰的"预取下一段"小字
+ * - 'idle'：都好了，不显示
+ */
+export type PillState = 'current' | 'prefetch' | 'idle';
+
+export function pillState(pending: Pick<ChunkRow, 'paraIds'>[], visibleParaIds: readonly string[]): PillState {
+  if (!pending.length) return 'idle';
+  const vis = new Set(visibleParaIds);
+  return pending.some((c) => c.paraIds.some((p) => vis.has(p))) ? 'current' : 'prefetch';
 }
 
 /** 浏览器里用：拿设置里的 key 直连 Anthropic。SDK 在第一次真的要发请求时才加载（全部已标好时连 SDK 都不下载）。 */

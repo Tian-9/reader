@@ -22,12 +22,15 @@ scripts/
   t5-browser.mjs                headless：花费面板对账 → 导出生词过校验 → 备份 → 清空站点数据 → 导入备份条数一致
   validate-export.mjs           按 schema 校验导出的生词 / 词库备份（node scripts/validate-export.mjs x.json）
   t3-epub.ts / t3-shot.mjs / t3-demo/   T3 的抽段、截图、标注层 demo
+  fix1-real.ts / fix1-browser.mjs  首用反馈修复的真跑（过滤前后对比，$0.3 上限）和 headless 验收（闸、小牌子、按钮、本章生词）
+  make-common-words.mjs         从 NGSL 原始 CSV 生成 src/annotate/common-words.ts（下载地址在文件头）
 src/
   types.ts                      共享接口：Para / Chapter / Annotation / Word / ChatRecord … ← 各 T 的合同（只做加法）
   db/db.ts                      Dexie 表结构 + chapterParas()（改表加新 version，只做加法）
   epub/                         T2：parse（切章拆段）、drm、import（入库/当前书）、words（分词）、errors
   annotate/                     T3：chunker 分组、pipeline 标注调用、anchor 锚定、guard 输出守卫、queue 预取、
-                                tap 点词补注、words 词库三态、profile 拼 user 消息、visible 阈值过滤、text
+                                tap 点词补注、words 词库三态、profile 拼 user 消息、visible 阈值过滤 + 常用词/专有名词两道硬闸、text、
+                                common-words（NGSL 高频词表，CC BY-SA 4.0，生成的，别手改）
   chat/                         T4：context（PLAN 2.9 上下文组装，纯函数）、session（一轮聊天：流式/守卫/记账/存库）、
                                 summary（章末触发 + 滚动摘要）、autosummary.svelte.ts（盯阅读状态触发摘要）
   components/                   ReaderView（T2 阅读视图，里面挂 T3 的 AnnotationLayer）、ParaText、ImportButton、
@@ -79,6 +82,7 @@ test/                           单测（vitest + fake-indexeddb）。direct.tes
 - **结构化输出（标注/补注/摘要）的 max_tokens 是思考 + 正文共用。** Haiku 5.5 effort=medium 的 adaptive thinking 实测吃 4–5.6K，JSON 会被截断；`callStructured` 截断时自动用 effort=low 重发一次。调小上限前先看真跑的 thinking_tokens。
 - **备份文件不带 API key**（会进下载目录、发给 Claude 会话）。导入时保留本机的 key；`scripts/validate-export.mjs` 见到 apiKey / appToken 就判不过。
 - **仓库是公开的。** 推之前确认历史里没有 key：`git log --all -p | grep -cE 'sk-an[t]'` 必须是 0（正则写成 `[t]` 是为了这行文档自己不被匹配）。所以测试和脚本里的假 key 一律别用 Anthropic key 的前缀，写 `test-key-…` / `mock-key-…`。也确认没有书、没有 shots/。
+- **显示过滤不信模型的 level。** 常用词闸 + 专有名词闸在 `visible.ts`（PLAN 2.4(d)），被闸住的不划线、不进词库、不进导出、不进 `<known>/<unknown>`；只有她点了"加入生词本"的能越过。改阈值档位改 `COMMON_TIER`。`common-words.ts` 是 CC BY-SA 4.0 的改编数据，文件头的署名别删。
 - **$state.raw 里的数组被就地 push 后，重新赋值外层对象时数组也要换新**（`{...s, display: [...s.display]}`），不然 $derived 看不到变化。
 
 ## 文案

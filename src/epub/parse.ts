@@ -197,6 +197,13 @@ class Walker {
     private readonly emit: (text: string, heading: boolean) => void,
   ) {}
 
+  /** 元素自己或里面有没有目录指向的 id/name（= 这里要开新章） */
+  private hasBound(el: Element, deep: boolean): boolean {
+    const ids: Element[] = [el];
+    if (deep) ids.push(...Array.from(el.querySelectorAll('[id], [name]')));
+    return ids.some((x) => [x.getAttribute('id'), x.getAttribute('name')].some((k) => !!k && this.bounds.has(k)));
+  }
+
   /** 元素自己或里面带了目录指向的 id/name，按文档顺序开章 */
   private hitBounds(el: Element, deep: boolean): void {
     const ids: Element[] = [el];
@@ -233,8 +240,11 @@ class Walker {
         continue;
       }
       if (isBoilerplate(child)) {
-        flush();
-        this.hitBounds(child, true);
+        // 段中间的页码标记（epub:type=pagebreak）直接丢掉，不切段；只有它刚好是目录指向的章节锚点才切
+        if (this.hasBound(child, true)) {
+          flush();
+          this.hitBounds(child, true);
+        }
         continue;
       }
       if (BLOCK.has(name) || containsBlock(child)) {
@@ -248,7 +258,8 @@ class Walker {
         buf += ' ';
         continue;
       }
-      if (child.querySelector('[id], [name]') || child.getAttribute('id') || child.getAttribute('name')) {
+      // 只有目录指向的锚点才在这里切章；普通带 id 的行内元素（页码 <span id="page12"/>、脚注锚）不切段
+      if (this.hasBound(child, true)) {
         if (cleanText(buf)) flush();
         this.hitBounds(child, true);
       }

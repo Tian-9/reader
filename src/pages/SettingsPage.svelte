@@ -74,7 +74,7 @@
   async function exportVocab() {
     busy = true;
     try {
-      const { rows, skipped } = await buildVocabExport(db());
+      const { rows, skipped } = await buildVocabExport(db(), settings.level);
       if (!rows.length) {
         vocabMsg = skipped.length ? `有 ${skipped.length} 个生词还没有中文释义，导不了。` : '生词本是空的：在学 / 不认识的词才会导出。';
         return;

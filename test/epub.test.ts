@@ -158,3 +158,18 @@ describe('入库', () => {
     expect(await currentBookId(d)).toBe(rb.bookId);
   });
 });
+
+describe('解析器不插省略号（首用反馈 "Dudley. … He"）', () => {
+  it('跳过图片/页码锚点、<br>、行内标签时不补任何字符、也不切段；原文的 ... / … 原样保留', async () => {
+    const heading =
+      '<h2><a id="ch1"/>Chapter 1</h2>' +
+      '<p>She waved at her cousin Rupert.<img src="x.png" alt="pic"/><span id="page12"></span> He could not<br/>know <span epub:type="pagebreak" id="p13" title="13"/><i>anything</i>.</p>' +
+      '<p>Rupert paused... then <b>sighed</b>. Later … much later.</p>';
+    const b = await parseEpub(makeEpub({ chapters: [{ title: 'Chapter 1', heading, paras: fakeParas(55) }, { title: 'Chapter 2', paras: fakeParas(3) }] }));
+    const [p1, p2] = b.paras;
+    expect(p1!.text).toBe('She waved at her cousin Rupert. He could not know anything.');
+    expect(p1!.text).not.toMatch(/…|\.\.\./);
+    expect(p2!.text).toBe('Rupert paused... then sighed. Later … much later.');
+    expect(b.paras.filter((p) => /…|\.\.\./.test(p.text)).length).toBe(1);
+  });
+});

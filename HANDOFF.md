@@ -1,6 +1,6 @@
 # HANDOFF
 
-## 当前状态（2026-11-04，T1–T5 完成，已改直连模式，待上线）
+## 当前状态（2026-11-04，T1–T5 完成，直连模式，已上线 https://tian-9.github.io/reader/；首用反馈已修，见"首用反馈 2026-11-04"一节）
 
 T1 骨架、T2 导入+阅读、T3 标注+词库、T4 小克抽屉+前情摘要、T5 生词导出+备份+花费面板都在本地跑通。MVP 的代码部分到此齐了。
 **2026-11-04 她定：不要代理、不要托管后端，改成 pocketverse 同款"设置页本地填 key、浏览器直连 Anthropic"，静态部署到 GitHub Pages。** 已改完并真跑验过，见下面"直连模式"一节；代理代码存档在 `legacy/`。
@@ -36,6 +36,57 @@ T1 骨架、T2 导入+阅读、T3 标注+词库、T4 小克抽屉+前情摘要�
 3. **Dexie 多了两张表：** `chapters`（存目录标题，PLAN 2.4(b) 没列）和 `settings`。`ledger` 加了可选的 `bookId`（"这本书花了多少"要按书分）。
 4. **SDK 懒加载**：首屏只有 Dexie + Svelte（gzip 约 50KB），SDK（gzip 约 80KB）第一次调 API 才下载，service worker 照样预缓存，离线不受影响。
 5. **设置页有个"测一下口令"按钮**：发一句最短的 Haiku 请求（< $0.0001）。能分清"口令不对"和"口令对了但服务器上的 key 被 Anthropic 拒了"。
+
+## 首用反馈 2026-11-04
+
+她第一次在手机上用（HP1 第 1 章，B1）。四处要修 + 一个疑问，全部做完、真跑/headless 验过、已推 main 部署。
+
+### 1. 标注质量：`country`（常用词）、`Potter`（人名）被划了虚线
+
+**查了什么**
+- 原过滤 `isVisible` 只信模型给的 level，另外有三条不看 level 的旁路：vocab 的 `level === '-'`（schema 的 level 枚举里**没有 A1**，模型想说"很简单"只能填 A2 或 "-"，填 "-" 就直接显示）、`invented=true`、词库里 unknown/learning 的词（**点开过一次卡片就自动记 unknown**，之后全书不看等级都显示）。
+- 彼得潘第 1 章真跑（`shots/fix1-data/report.json`，Haiku，B1）：入库 84 条（vocab 70、fun 14）。**Haiku 的 level 分布 B2 35 / C1 22 / C2 11 / B1 1 / A2 1，不离谱**；旧过滤显示 68 个 vocab，里面在整张 NGSL（2809 个高频词）里的只有 6 个（charge #498、air #542、dismiss #2392、intensely #2564、peer #2007、entrancing→entrance #2225），在 B1 档（前 2000）里的只有 charge、air 两个；大写开头的只有 `Brussels sprout`、`I daresay`，**0 个人名**。旧 t3 报告（第 1/5/12 章，Haiku 41 条 + Sonnet 57 条）同样 0 个人名，B1 档常用词只有 Sonnet 的 remain、conduct。
+- 结论：**彼得潘上复现不出来**；本机没有 HP（books/ 里只有彼得潘和绿野仙踪），她手机上的库也看不到，所以 country/Potter 具体走的哪条路**没法确认**。最可能的两条：① HP 的用词比彼得潘浅，模型凑数时给了 "-" 或高估 level；② 她点开过这两个词（或误触），被记成 unknown 后不看等级常显示。两道闸把这几条路全堵上了（唯一没堵的是模型把人名标成 `invented=true`，按任务书 invented 的不拦，因为 Muggle 这类自造词也是句中大写）。
+
+**修法（不信模型，两道硬闸，在 `src/annotate/visible.ts`）**
+- 常用词闸：内置 NGSL 1.2（New General Service List，Browne/Culligan/Phillips，**CC BY-SA 4.0**，可放公开仓，文件头署名）→ `src/annotate/common-words.ts`（29KB：2809 个按频率排的 lemma + 50 个星期月份数字 + 518 个不规则词形/英式拼写映射）。按水平切档：A1 前 500、A2 前 1000、**B1 前 2000**、B2 及以上整张表。查表会试英式→美式（colour、centre、realise…）、常见词尾（countries、stopped、carefully）、不规则形（children、went）；quote 是单个词时也按 quote 查（防 lemma 写成短语）。Oxford 3000 是牛津的版权材料，没用。
+- 专有名词闸：quote 首字母大写、不在句首、`invented=false` → 不显示。句首 = 段首，或 . ! ? … : 后面，或紧跟开引号；`Mr.`/`Mrs.` 这类称谓的句点不算句尾。单独的 I、带小写词的短语（Brussels sprout）放行。
+- 被闸住的：存库留着，标 `hiddenReason: 'common' | 'proper'`（types.ts 只加字段，Dexie 不用升版本）；不划线、点开卡片照出但**不记进词库**、不导出、不进 `<known>`/`<unknown>` 样本（省 token）。她自己点了"加入生词本"的词能越过两道闸。显示时按**当前水平现算**，所以她手机上已经标过的 HP 第 1 章**不用重标**，新版一开就生效。
+- 生效位置：`isVisible`（标注层 + t3 脚本）、`processItems`/`tapAnnotate`（入库打标记）、`knownSample`/`unknownSample`、`buildVocabExport(d, level)`。
+
+**真跑（`node scripts/vrun.mjs scripts/fix1-real.ts`，彼得潘第 1 章 4 组，$0.011，4 次调用）**：过滤前显示 68 个 vocab → 过滤后 66 个，滤掉 2 个：
+| quote | lemma | 模型给的 level | 原因 | NGSL 排名 |
+|---|---|---|---|---|
+| her charges | charge | C2 | common | #498 |
+| beautifully aired | air | B2 | common | #542 |
+
+这两个都是**常用词的冷门义项**（"她看护的孩子们"、"晾好通风"），是频率表闸的代价：词频看的是词不是义项。她点那个词卡片照出，只是不划线。另一个已知的小误伤：`entrancing` 会被词尾规则当成 `entrance`（#2225），只影响 B2 及以上档。
+
+### 2. "标注中…"小牌子
+`Annotator.ensureAround(bookId, paraId, onPending)` 每标好一组报一次"k、k+1 里还没好的组"；`pillState(pending, 屏幕上的段落)`：还没好的组里有屏幕上的段落 → "标注中…"；只差屏幕外的下一组 → 右下角不打扰的"预取下一段"小字（11px、无边框、半透明）；都好了不显示。快速翻页时只认最新一次回报。
+
+### 3. 右下角"下一章"和"小克"叠在一起
+"下一章"本来就在章末正文流里，问题是页面底部只留了 3em，滚到底时它正好停在固定的"小克"按钮（离底 52px、高 44px）底下。改成章末导航下面留 `120px + 安全区`，滚到底时"下一章"停在"小克"上方。390px headless 量出来：下一章底边 708、小克顶边 748，**间隔 40px、不相交**（`shots/fix1-reading.png`）。
+
+### 4. 本章生词
+目录面板加了"目录 | 本章生词 N"两个页签。本章生词 = 本章当前显示的 vocab（过了两道闸和阈值），按出现顺序（段落序号 → 段内位置），同 lemma 留第一处，每条 lemma + 中文释义；点一条 → 关面板、滚到那段、那个词用卡片高亮色闪 1.6 秒。标注层通过 `reading.chapterVocab` 发布列表（`reading.svelte.ts`），`FOCUS_ANNOTATION_EVENT` 触发闪一下。截图 `shots/fix1-wordlist.png`。
+
+### 另查：正文里的 "Dudley. … He"
+`src/epub/parse.ts` **不会**插省略号：`cleanText` 只做 NFC + 去零宽字符 + 合并空白（NFC 不会把 `...` 变成 `…`），拼段只拼原文文字、`<br>` 变空格、丢掉的元素（图片、页码）不补任何字符。**应为她文件原有**（HP1 这句本来就有一处省略号，美版排成 `. . . .`）。
+顺带查出并修了一个 T2 的小毛病：段中间带 id 的行内元素（页码锚点 `<span id="page12"/>`、`epub:type="pagebreak"`）会把一段**切成两段**（本意是在目录指向的章节锚点处切章，但没判断这个 id 是不是目录指向的）。现在只有目录真指向的锚点才切。她手机上已导入的书不受影响（要重新导入才按新规则拆段）。单测在 `test/epub.test.ts` 末尾。
+
+### 验收
+| 项 | 结果 |
+|---|---|
+| `npm run lint` / `npm run build` | 过（0 错 0 警告；136 个单测 + 1 个跳过，新增 `test/gates.test.ts` 22 条 + epub 1 条） |
+| 单测覆盖 | 词表形状/大小/切档、country 和英式拼写/词形、句首判断、人名闸和例外、isVisible 两道闸 + learning 越过 + "-" level、入库打 hiddenReason、样本排除常用词、点词补注不记词库、导出不导常用词、pillState 四种情况、ensureAround 回报序列、本章生词排序去重、解析器不插省略号不切段 |
+| headless 390px（`node scripts/fix1-browser.mjs`，假 API） | 11/11 过：标注中… → 预取下一段 → 消失；塞进去的 B2 常用词（children）和句中人名（Wendy）不划线；章末按钮间隔 40px；本章生词 11 条不含被闸的词；点一条跳过去；0 报错。报告 `shots/fix1-data/browser.json` |
+| 真跑 | 见上，$0.011（上限 $0.3） |
+| 推 main → 线上 | 见下一行（推完回填） |
+
+**没改的**：模型选择（Haiku/Sonnet 她还没定）、prompt（`ANNOTATE_PROMPT_VERSION` 没动，不触发重标）、books/。
+
+**她可以看/定的**：常用词闸的档位（B1 = 前 2000）会不会藏多了——读几章要是觉得"这个我其实不认识但没划线"，告诉剧组调 `COMMON_TIER`；或者直接点那个词、卡片上"加入生词本"，以后它全书都划线。
 
 ## 直连模式 + GitHub Pages（2026-11-04 改）
 

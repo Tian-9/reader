@@ -6,8 +6,9 @@
  * scripts/validate-export.mjs 按同一份 schema 校验，还会拦"中文字段里夹了 ≥6 个连续英文词"。
  */
 import type { ReaderDB } from '../db/db';
+import { isCommonWord } from '../annotate/visible';
 import { normLemma } from '../annotate/words';
-import { parseParaId, type Annotation, type Book, type Word } from '../types';
+import { parseParaId, type Annotation, type Book, type ReaderLevel, type Word } from '../types';
 
 /** 一条导出的生词。只有 en 和 zh 必填（非空），其余字段都在、可以是空串。 */
 export interface VocabExportRow {
@@ -56,8 +57,11 @@ export interface VocabExport {
  * 从库里拼导出。释义优先用 words.glossZh，没有就找同 lemma 的 vocab 标注（优先第一次遇到的那段）；
  * gloss_zh 放标注的 note_zh（补充说明，和 zh 一样就不重复）。按第一次遇到的位置排序（书 → 章 → 段）。
  */
-export async function buildVocabExport(d: ReaderDB): Promise<VocabExport> {
-  const words = (await d.words.where('status').anyOf('learning', 'unknown').toArray()) as Word[];
+export async function buildVocabExport(d: ReaderDB, level?: ReaderLevel): Promise<VocabExport> {
+  // 常用词表里的词（多半是误点卡片记下的 unknown）不导出；她自己加进生词本的照导
+  const words = ((await d.words.where('status').anyOf('learning', 'unknown').toArray()) as Word[]).filter(
+    (w) => w.status === 'learning' || !level || !isCommonWord(w.lemma, level),
+  );
   const books = new Map<string, Book>((await d.books.toArray()).map((b) => [b.id, b]));
   const anns = new Map<string, Annotation[]>();
   if (words.length) {

@@ -135,7 +135,15 @@ export interface Annotation {
   noteZh: string;
   model: string;
   createdAt: number;
+  /**
+   * 2026-11-04 补：入库时两道硬闸的判断（存库留着、不显示、不计入词库）。'common' = 常用词表里（按当时的水平），
+   * 'proper' = 句中大写的人名地名。显示时 visible.ts 按当前水平重算，这里只是记录 + 老数据没段落原文时的后备。
+   */
+  hiddenReason?: HiddenReason;
 }
+
+/** 2026-11-04 补：为什么一条 vocab 被硬闸藏起来。 */
+export type HiddenReason = 'common' | 'proper';
 
 // ───────────────────────── 词库（T3） ─────────────────────────
 

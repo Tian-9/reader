@@ -10,13 +10,14 @@
   // 元素里所有文字节点按顺序拼起来 = para.text（T2 的 ParaText 正是这样）。页边记号画在段落外的浮层里，不往段落里塞元素。
   import { liveQuery } from 'dexie';
   import { onMount } from 'svelte';
-  import { getAnnotator, type Annotator } from '../annotate/queue';
+  import { getAnnotator, pillState, type Annotator } from '../annotate/queue';
   import { tapAnnotate, annotationAt } from '../annotate/tap';
-  import { isVisible } from '../annotate/visible';
+  import { chapterVocabList, hiddenReason, isVisible } from '../annotate/visible';
   import { addToLearning, lemmaSets, levelAbove, markKnown, noteTapped, normLemma, thresholdHint, unmarkKnown, type ThresholdHint } from '../annotate/words';
   import { db } from '../db/db';
   import { saveSettings, settings } from '../settings.svelte';
-  import type { Annotation, AskXiaokeDetail, Word, WordTapDetail } from '../types';
+  import type { Annotation, AskXiaokeDetail, ChunkRow, Word, WordTapDetail } from '../types';
+  import { FOCUS_ANNOTATION_EVENT, reading } from './reading.svelte';
   import WordCard, { type CardState } from './WordCard.svelte';
 
   let {
@@ -24,6 +25,9 @@
     root,
     paraIds,
     currentParaId = '',
+    visibleParaIds = undefined,
+    paraText = undefined,
+    publishChapterVocab = false,
     paraElement = (r: HTMLElement, id: string) => r.querySelector<HTMLElement>(`[data-pid="${id}"], [data-para-id="${id}"]`),
     annotator = getAnnotator(() => settings),
   }: {
@@ -34,6 +38,12 @@
     paraIds: string[];
     /** 读到哪一段（触发预取） */
     currentParaId?: string;
+    /** 屏幕上看得见的段落（决定小牌子是"标注中…"还是"预取下一段"）；不给就只看 currentParaId */
+    visibleParaIds?: string[];
+    /** 段落原文（专有名词闸判断句首用） */
+    paraText?: (paraId: string) => string | undefined;
+    /** 把本章显示的生词写进 reading.chapterVocab（阅读页开，demo 不开） */
+    publishChapterVocab?: boolean;
     paraElement?: (root: HTMLElement, paraId: string) => HTMLElement | null;
     annotator?: Annotator;
   } = $props();
@@ -43,7 +53,10 @@
   let card: CardState | null = $state(null);
   let hint: ThresholdHint | null = $state(null);
   let toast = $state('');
-  let busy = $state(false);
+  /** k、k+1 里还没标好的组（ensureAround 报上来的） */
+  let pending: ChunkRow[] = $state([]);
+  /** 目录面板点过来的那条，闪一下 */
+  let flashId = $state('');
   let overlay: HTMLDivElement | undefined = $state();
   let marks: { id: string; top: number; left: number; ann: Annotation }[] = $state([]);
 
@@ -65,7 +78,16 @@
   });
 
   const sets = $derived(lemmaSets(words));
-  const visible = $derived(anns.filter((a) => isVisible(a, settings.level, sets.known, sets.marked)));
+  const visible = $derived(
+    anns.filter((a) => isVisible(a, settings.level, sets.known, sets.marked, { paraText, learning: sets.learning })),
+  );
+  const pill = $derived(pillState(pending, visibleParaIds?.length ? visibleParaIds : [currentParaId]));
+
+  $effect(() => {
+    if (!publishChapterVocab) return;
+    reading.chapterVocab = chapterVocabList(visible).map((a) => ({ id: a.id, paraId: a.paraId, lemma: a.lemma, quote: a.quote, glossZh: a.glossZh }));
+    return () => (reading.chapterVocab = []);
+  });
   const wordStatus = $derived.by(() => {
     const a = card?.ann;
     return a ? words.find((w) => w.lemma === normLemma(a.lemma))?.status : undefined;
@@ -107,7 +129,7 @@
       const r = rangeFor(el, a.start, a.end);
       if (!r) continue;
       if (a.kind === 'vocab') vocab.push(r);
-      if (card?.ann?.id === a.id) active.push(r);
+      if (card?.ann?.id === a.id || flashId === a.id) active.push(r);
       if (a.kind === 'fun' && box) {
         const line = r.getClientRects()[0];
         const pr = el.getBoundingClientRect();
@@ -143,6 +165,7 @@
     // 依赖：可见标注、打开的卡片、容器
     void visible;
     void card?.ann?.id;
+    void flashId;
     void root;
     schedulePaint();
   });
@@ -155,11 +178,20 @@
       ::highlight(rd-active) { background-color: color-mix(in srgb, var(--accent) 22%, transparent); }`;
     document.head.append(style);
     const onTap = (e: Event) => void handleTap((e as CustomEvent<WordTapDetail>).detail);
+    let flashTimer: ReturnType<typeof setTimeout> | undefined;
+    const onFocus = (e: Event) => {
+      flashId = String((e as CustomEvent<string>).detail ?? '');
+      clearTimeout(flashTimer);
+      flashTimer = setTimeout(() => (flashId = ''), 1600);
+    };
     window.addEventListener('word-tap', onTap);
+    window.addEventListener(FOCUS_ANNOTATION_EVENT, onFocus);
     window.addEventListener('resize', schedulePaint);
     return () => {
       style.remove();
+      clearTimeout(flashTimer);
       window.removeEventListener('word-tap', onTap);
+      window.removeEventListener(FOCUS_ANNOTATION_EVENT, onFocus);
       window.removeEventListener('resize', schedulePaint);
       if (supported) {
         CSS.highlights.delete('rd-vocab');
@@ -183,19 +215,22 @@
 
   // ── 预取 ──
   let prefetchTimer: ReturnType<typeof setTimeout> | undefined;
+  let prefetchToken = 0;
   $effect(() => {
     const pid = currentParaId;
     const b = bookId;
     if (!pid || !b) return;
     clearTimeout(prefetchTimer);
     prefetchTimer = setTimeout(async () => {
-      busy = true;
+      // 只认最新一次的回报：往回滚/快速翻时，旧的那次后报上来的状态别把新的盖掉
+      const token = ++prefetchToken;
       try {
-        await annotator.ensureAround(b, pid);
+        await annotator.ensureAround(b, pid, (p) => {
+          if (token === prefetchToken) pending = p;
+        });
       } catch (e) {
+        if (token === prefetchToken) pending = [];
         toast = `标注没成功：${e instanceof Error ? e.message : String(e)}`;
-      } finally {
-        busy = false;
       }
     }, 300);
     return () => clearTimeout(prefetchTimer);
@@ -204,7 +239,10 @@
   // ── 点词 ──
   function open(a: Annotation) {
     card = { surface: a.quote, ann: a, loading: false };
-    if (a.kind === 'vocab' && !sets.known.has(normLemma(a.lemma))) {
+    const lemma = normLemma(a.lemma);
+    // 被常用词/专有名词闸藏起来的词：卡片照开，但不记进词库（她自己加过生词本的除外）
+    const gated = !sets.learning.has(lemma) && !!hiddenReason(a, settings.level, paraText?.(a.paraId));
+    if (a.kind === 'vocab' && !gated && !sets.known.has(lemma)) {
       void noteTapped(db(), { lemma: a.lemma, level: a.level, glossZh: a.glossZh, bookId: a.bookId, paraId: a.paraId });
     }
   }
@@ -272,7 +310,11 @@
   {/each}
 </div>
 
-{#if busy}<div class="pill" aria-live="polite">标注中…</div>{/if}
+{#if pill === 'current'}
+  <div class="pill" aria-live="polite">标注中…</div>
+{:else if pill === 'prefetch'}
+  <div class="pill quiet" data-testid="prefetch-pill">预取下一段</div>
+{/if}
 
 {#if hint}
   <div class="toast" role="status">
@@ -325,6 +367,15 @@
     border: 1px solid var(--line);
     color: var(--muted);
     font-size: 12px;
+  }
+  /* 预取下一段：当前看的都标好了，只是在后台等下一组。小字、没边框，不抢眼 */
+  .pill.quiet {
+    padding: 2px 6px;
+    background: transparent;
+    border-color: transparent;
+    font-size: 11px;
+    opacity: 0.6;
+    pointer-events: none;
   }
   .toast {
     position: fixed;
