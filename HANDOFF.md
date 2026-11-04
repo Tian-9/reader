@@ -106,23 +106,57 @@
 
 **本地 headless 实测怎么跑**：`npm run build && npx vite preview --port 4173`，脚本在剧组 scratchpad（puppeteer-core + 本机 Chrome，没进项目依赖）。要点：Aa/目录面板是底部弹层，点遮罩要点上方空白处（点中心会点进目录）；断网测试要先等 `navigator.serviceWorker.ready` 再刷新一次让 SW 接管。
 
-### T3（标注管线 + 词库）
-- prompt 和 schema：`src/llm/prompts/annotate.ts`（`ANNOTATE_SYSTEM`、`ANNOTATE_USER_TEMPLATE`、`ANNOTATE_SCHEMA`、`TAP_SCHEMA`、`ANNOTATE_PROMPT_VERSION`）。和 PLAN 3.1 逐字一致；点词补注的 system 短版 PLAN 没出全文，T3 自己写。
-- 调用：
-  ```ts
-  const c = await getClient(settings.appToken);
-  const p = baseParams('annotate', settings);
-  const msg = await c.messages.create({
-    ...p,
-    system: [{ type: 'text', text: ANNOTATE_SYSTEM, cache_control: { type: 'ephemeral' } }],
-    messages: [{ role: 'user', content: userText }],
-    output_config: { ...p.output_config, format: { type: 'json_schema', schema: ANNOTATE_SCHEMA } },
-  });
-  ```
-  模型、effort、max_tokens 在 `src/llm/roles.ts`，别在业务代码里写死。用户在设置里改的模型通过 `settings.models` 覆盖（`modelFor()` 会过滤掉白名单外的）。
-- 模型输出的形状是 `AnnotationItem`（snake_case，和 JSON 一致）；锚定成功后存 `Annotation`（camelCase + start/end）进 `db().annotations`。chunk 状态在 `db().chunks`（`[bookId+status]` 索引可查待办）。
-- 词库：`db().words`，主键 lemma。账本：`db().ledger`。
-- 读者水平和防剧透在 `settings`（`src/settings.svelte.ts`），存库前 `$state.snapshot`。
+### T3（标注管线 + 词库）—— 2026-11-04 代码完成；真跑部分待 key，未部署
+
+**真跑没做**：本机 shell、`~/.zshrc`、`~/.zprofile` 里都没有 `ANTHROPIC_API_KEY`，按规矩跳过。脚本已备好，并用假模型（`--mock`）把整条链路跑通过一遍（第 1 章切组 → 标注 → "我会" → 后续请求带 `<known>` → 回看 0 调用 → Sonnet 对照 → 静态 HTML → 390px 截图）。有 key 后一条命令：
+```
+ANTHROPIC_API_KEY=… node scripts/vrun.mjs scripts/t3-real.ts      # 结果：shots/t3-ch{1,5,12}.png（+ -sonnet 对照）、shots/t3-data/report.json
+```
+脚本直连 Anthropic（不走代理），不打印 key；累计花费超 `--budget`（默认 $2）自动停并写半截报告。预估这一趟 < $0.2（Haiku 6 组约 $0.01，Sonnet 3 组约 $0.1）。
+
+**验收结果**
+
+| 项 | 结果 |
+|---|---|
+| 单测（全自编段落） | 锚定：弯/直引号双向、大小写空格、首尾标点、occ 第 1/2/3 次、词边界（"art" 不进 "start"）、occ 超出退回第一次、找不到、6 词 quote；守卫：5 词放行 6 词拦、8 词重合替换"（原文略）"、7 词不拦、弯撇号大小写；分组；管线请求形状；Haiku 拒绝 → Sonnet 重试；预取 k/k+1/k+2、跨章、去重、`<already_noted>`；"我会"全书生效 + 下一次 `<known>` 含该词；阈值过滤；连点 15 次提示；点词补注。 |
+| `npm run lint` / `npm run build` | 通过（0 错 0 警告，82 个单测 + T2 的 1 个跳过） |
+| 渲染层（真 Chrome，`scripts/t3-demo`，用 T2 的 `ParaText` + `data-pid` 段落） | B1 读者 6 个生词显示 5 个（B1 的那个被阈值藏掉）、2 个页边 ※；点 sideways 开卡片并高亮；点"这个我会"→ 两处 sideways（不同段）一起消失，0 次调用；点没标的 grumbled → 1 次补注调用、多一条虚线；※ 打开"有意思"卡片；"问小克"把 `ask-xiaoke` 冒泡到 window。页面 0 报错 |
+| 真跑彼得潘第 1 章：锚定率 ≥90%、入库 quote 无 >5 词、花费 | **待 key**（脚本会算出来写进 report.json） |
+| "我会"全书生效 + 下次 `<known>` 含该词（打日志） | 单测 + demo 已验；真跑那一步脚本也会记 `knownLog` |
+| 回看已标章节 0 次调用 | 单测已验（同一标注器、新开标注器都是 0）；真跑脚本会再数一遍 |
+| 第 1/5/12 章各一组截图 + Haiku/Sonnet fun 并排 | **待 key**（脚本会出 `shots/t3-ch{1,5,12}.png` 和 `-sonnet.png`，fun 条目在 report.json 的 `compare` 里） |
+
+**文件**
+- `src/annotate/`：`text.ts`（规范化 + 位置映射、词数）、`anchor.ts`（锚定）、`guard.ts`（输出守卫）、`chunker.ts`（分组 + 存 chunks）、`profile.ts`（拼 user 消息：known 60 / unknown 40 / 前情 / already_noted / passage）、`pipeline.ts`（调用 + 拒绝重试 + 锚定 + 守卫 + 入库 + 记账）、`queue.ts`（预取队列 `Annotator`、浏览器用的 `getAnnotator()`）、`tap.ts`（点词补注）、`words.ts`（词库三态、阈值提示）、`visible.ts`（显示过滤）。
+- `src/llm/pricing.ts`（PLAN 第 6 节单价；缓存写 = 输入 × 1.25）、`src/llm/ledger.ts`（`recordUsage` / `totalUsd`，T4/T5 照用）、`src/llm/prompts/tap.ts`（点词短 system，`TAP_PROMPT_VERSION`）。
+- `src/components/AnnotationLayer.svelte`（标注层）、`WordCard.svelte`（底部卡片）。
+- `scripts/vrun.mjs`（用 vite 跑 TS 脚本）、`scripts/t3-real.ts`（真跑）、`scripts/t3-epub.ts`（临时 EPUB 抽段，只认 Gutenberg 结构）、`scripts/t3-shot.mjs`（CDP 整页截图，不依赖 puppeteer）、`scripts/t3-demo/`（标注层 demo：`npx vite --config scripts/t3-demo/vite.config.mjs`，端口 5287）。都不进 dist。
+- 测试：`test/anchor|guard|chunker|pipeline|tap|pricing.test.ts`，夹具 `test/fixtures/t3.ts`（自编段落）。
+
+**合同改动（只加不改）**
+- `types.ts`：`ChunkRow.stats?: ChunkStats`（每组的锚定/守卫统计）；`Word.level?`（挑 known 样本、判断同级连点）；新类型 `GuardEvent`、`WordTapDetail`（= T2 的 `WordTap`）、`AskXiaokeDetail`。
+- `db.ts`：`version(2)` 加表 `guardEvents`（`++id, ts, bookId, kind`），v1 没动。守卫/锚定失败/拒绝每次记一行，只记"发生了什么"不存原文；T4 的聊天守卫也往这里记（purpose='chat'）。
+
+**还没接进 App（T3 不改 T2 的文件）**：`AnnotationLayer` 已经按 T2 的接口写好，谁接手 ReaderView 时加一行就亮：
+```svelte
+<!-- ReaderView 里，包住所有 <p class="para" data-pid> 的那个元素内部 -->
+<AnnotationLayer {bookId} root={那个元素} paraIds={本章段落 id 数组} currentParaId={reading.topParaId} />
+```
+- 它不改段落 DOM：生词虚线用 CSS Custom Highlight API（浏览器自带的"给一段文字上样式而不插标签"，安卓 Chrome 105+ 支持）画在 T2 的文字上；※ 画在段落外的绝对定位浮层里（浮层相对最近的定位祖先，坐标按自己算，不要求 root 有 position）。
+- 点词听 window 上的 `word-tap`；点到已标的词（包括被"我会"藏起来的）开卡片、0 调用，没标的走点词补注。
+- `currentParaId` 变了 300ms 后预取：等 k、k+1，后台 k+2；已标好的组连 SDK 都不加载。右下角有个"标注中…"小牌子，失败（比如没填口令）出提示条。
+- "问小克"只派发 `CustomEvent('ask-xiaoke', { detail: AskXiaokeDetail, bubbles, composed })`，T4 在 window 上听。
+
+**和 PLAN 不一样 / PLAN 没写死的地方**
+1. **组不跨章**：chunk 只在一章内攒（`<already_noted>` 和前情都按章算）。章尾 <300 词的尾巴并进前一组（合起来 ≤1000 词），否则两组在段落边界上对半分。彼得潘第 1 章 3033 词切 4 组。预取的 k+1/k+2 可以跨到下一章。
+2. **occ 对不上**（模型数错第几次）：退回第一次出现，算锚定成功，单独计 `occFallback`。quote 带首尾标点找不到时去掉标点再找一次。
+3. **重合守卫**按"本组所有段落"建 8 词片段索引，扫 `lemma / gloss_zh / note_zh` 三个字段；只把重合那段换成"（原文略）"，前后中文保留。
+4. **同一个 prompt 版本标过就不再请求**；`ANNOTATE_PROMPT_VERSION` 递增后，读到时会重标并先删掉这组旧标注（点词补注的 `chunkId='tap'` 不受影响）。
+5. **阈值 = 设置里的水平自评**（B1 → 显示 B2 及以上）。在词库里标过"不认识/在学"的词、作者自造词、fun 条目不受阈值限制。卡片上已"我会"的词显示"其实还不熟"可以撤回。
+6. **连点提示**：最近一串"我会"同一级、每满 15 次提示一回"要不要把水平调到 X"，点"调到 X"才改设置（她点才改，不自动改）。
+7. **`<known>` 样本**：最近 10 个无条件保留（保证刚点的"我会"一定在下一次请求里），其余从最近 200 个里按离阈值的级距挑，凑满 60。
+8. **点词补注**的 system 不到 512 token，达不到缓存下限，所以不打缓存断点。补注结果存成 `chunkId='tap'` 的 vocab 标注 + 词库记 unknown/tapped。
+9. 真跑用的是我自己的临时抽段脚本（正则取 `<p>`），不是 T2 的解析器；第 1 章我这边 52 段，和 T2 的切法可能有一两段出入（T2 会剔掉章首标题），不影响标注验收。
 
 ### T4（小克抽屉）先知道的
 - `src/llm/prompts/chat.ts` 有 `CHAT_SYSTEM` 和英文模式的中途 system 消息 `CHAT_EN_MODE`。聊天走 `c.beta.messages.stream({ ...betaParams('chat', settings), ... })`，已经带好服务器端 fallback。

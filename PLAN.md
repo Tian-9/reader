@@ -407,6 +407,8 @@ new Anthropic({ baseURL: `${location.origin}/api/anthropic`, apiKey: appToken, d
 
 （以上为估算，T3/T4 跑起来后以账本实测为准，再回填这一节。）
 
+- **T3 实测（2026-11-04）**：待 key。本机没有 `ANTHROPIC_API_KEY`，标注真跑没跑成；脚本 `scripts/t3-real.ts` 已备好（第 1 章全量 + 第 5/12 章各一组 Haiku，三组 Sonnet 对照），跑完把账本数字填在这一行。
+
 ---
 
 ## 7. 已拍板（总台 2026-11-04 按她的既有信息代定，她不同意再改）

@@ -9,7 +9,7 @@
  */
 import Dexie, { type EntityTable, type Table } from 'dexie';
 import type {
-  Annotation, Book, ChapterRow, ChatRecord, ChunkRow, LedgerEntry, ParaRow, Progress, Settings, Summary, Word,
+  Annotation, Book, ChapterRow, ChatRecord, ChunkRow, GuardEvent, LedgerEntry, ParaRow, Progress, Settings, Summary, Word,
 } from '../types';
 
 /** settings 表只有一行，主键固定为 'app'。 */
@@ -33,6 +33,8 @@ export class ReaderDB extends Dexie {
   chats!: EntityTable<ChatRecord, 'id'>;
   ledger!: EntityTable<LedgerEntry, 'id'>;
   settings!: EntityTable<SettingsRow, 'key'>;
+  /** T3 补（v2）：输出守卫 / 锚定失败的触发记录 */
+  guardEvents!: EntityTable<GuardEvent, 'id'>;
 
   constructor(name = 'reader') {
     super(name);
@@ -48,6 +50,10 @@ export class ReaderDB extends Dexie {
       chats: 'id, bookId, createdAt',
       ledger: '++id, ts, bookId, purpose',
       settings: 'key',
+    });
+    // v2（T3 补）：守卫/锚定触发记账。只加表，不动 v1 的定义。
+    this.version(2).stores({
+      guardEvents: '++id, ts, bookId, kind',
     });
   }
 }

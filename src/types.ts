@@ -94,6 +94,26 @@ export interface ChunkRow {
   promptVersion: number;
   /** 请求时的标注下限（读者水平往下一档） */
   levelFloor: ReaderLevel;
+  /** T3 补：这一组的锚定/守卫统计（status=done 时有）。用来算"锚定失败率"、观察 prompt 好不好使。 */
+  stats?: ChunkStats;
+}
+
+/** T3 补：一次标注调用的结果统计。 */
+export interface ChunkStats {
+  /** 模型返回的条目数 */
+  items: number;
+  /** 锚定成功并入库的条数 */
+  stored: number;
+  /** 找不到 quote（或段落编号不在本组）而丢弃 */
+  anchorFail: number;
+  /** quote 超过 5 词而丢弃 */
+  quoteTooLong: number;
+  /** occ 对不上、退回第一次出现的条数（算锚定成功） */
+  occFallback: number;
+  /** 文本字段被"（原文略）"替换的次数 */
+  overlapHits: number;
+  /** 因为 Haiku 拒绝而用重试模型跑的 */
+  refusalRetried: boolean;
 }
 
 /** annotations 表：锚定成功、过了输出守卫后入库的标注。start/end 是客户端算出来的段内字符偏移（[start, end)）。 */
@@ -130,6 +150,46 @@ export interface Word {
   firstSeen: { bookId: string; paraId: string };
   taps: number;
   updatedAt: number;
+  /** T3 补：这个词的 CEFR 等级（来自标注或点词补注）。用来挑 <known> 样本、判断"连续同级点我会"。 */
+  level?: Level;
+}
+
+// ───────────────────────── T3 补：守卫记账、界面事件 ─────────────────────────
+
+/**
+ * 输出守卫/锚定的一笔触发记录（guardEvents 表）。只记"发生了什么"，不存模型输出原文。
+ * T4 的聊天守卫也往这里记（purpose = 'chat'）。
+ */
+export interface GuardEvent {
+  id?: number;
+  ts: number;
+  bookId: string;
+  purpose: Purpose;
+  kind: 'anchor-fail' | 'quote-too-long' | 'overlap' | 'refusal';
+  paraId?: string;
+  /** 哪个字段触发的（overlap 时是 gloss_zh / note_zh 等） */
+  field?: string;
+}
+
+/** T2 阅读视图派发的点词事件（CustomEvent 'word-tap' 的 detail）。start/end 是段内字符偏移 [start, end)。 */
+export interface WordTapDetail {
+  paraId: string;
+  start: number;
+  end: number;
+  surface: string;
+}
+
+/** 卡片上"问小克"派发的事件（CustomEvent 'ask-xiaoke' 的 detail，冒泡到 window）。T4 监听它打开抽屉。 */
+export interface AskXiaokeDetail {
+  bookId: string;
+  paraId: string;
+  /** 被问的那几个字（≤5 词） */
+  quote: string;
+  kind: AnnotationKind;
+  lemma: string;
+  glossZh: string;
+  noteZh: string;
+  annotationId?: string;
 }
 
 // ───────────────────────── 进度、摘要、聊天、账本（T2 / T4 / T5） ─────────────────────────
