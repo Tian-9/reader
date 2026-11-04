@@ -1,24 +1,27 @@
 /**
- * Anthropic SDK 客户端。地址指向同站代理 /api/anthropic，apiKey 填的是"应用口令"，真 key 只在代理的环境变量里。
+ * Anthropic SDK 客户端（直连模式，PLAN 2.6）：浏览器拿她在设置页填的 API key 直接打 https://api.anthropic.com。
+ * key 只存在这台手机的 IndexedDB（Dexie settings 表，和 pocketverse 同款），不进备份、不进仓库、不经过任何服务器。
  * 业务代码用法（T3/T4）：
  *
- *   const c = await getClient(settings.appToken);
+ *   const c = await getClient(settings.apiKey);
  *   const p = baseParams('annotate', settings);           // model / max_tokens / thinking / effort
  *   const msg = await c.messages.create({ ...p, system, messages, output_config: { ...p.output_config, format } });
  *
  *   // 聊天（流式 + 服务器端 fallback 走 beta 接口）：
  *   const s = c.beta.messages.stream({ ...betaParams('chat', settings), system, messages });
  *
- * CSP 是 connect-src 'self'，这个客户端只能连同站代理，连不了任何别的地址。
- * SDK 约 360KB，第一次调 API 时才动态加载，阅读外壳不等它。类型照常静态 import（不进包）。
+ * - CSP 是 connect-src 'self' https://api.anthropic.com，页面只能连 Anthropic，连不了别的第三方。
+ * - 浏览器直连要 dangerouslyAllowBrowser + `anthropic-dangerous-direct-browser-access: true` 头，Anthropic 才回 CORS 头。
+ * - 原代理的白名单（模型 / max_tokens / beta / fallbacks / fast mode / 体积）由 guardedFetch 在发出前查（roles.ts 的 checkRequest）。
+ * - SDK 约 360KB，第一次调 API 时才动态加载，阅读外壳不等它。类型照常静态 import（不进包）。
  */
 import type Anthropic from '@anthropic-ai/sdk';
 import type { Purpose, Settings } from '../types';
-import { FALLBACK_BETA, ROLES, modelFor, supportsServerFallback, type ModelId } from './roles';
+import { FALLBACK_BETA, ROLES, checkRequest, modelFor, supportsServerFallback, type ModelId } from './roles';
 
-export const PROXY_PATH = '/api/anthropic';
-/** 代理口令不对时的报错文案（和 functions/api/anthropic/[[path]].ts 一致，test/proxy.test.ts 核对）。 */
-export const PROXY_BAD_TOKEN = '应用口令不对';
+export const API_BASE = 'https://api.anthropic.com';
+/** 白名单拦下的请求在本地回的 400 里带这个前缀，方便和 Anthropic 回的 400 区分。 */
+export const LOCAL_BLOCK_PREFIX = '本地拦下：';
 
 /** 从 API 错误体 {type:'error', error:{message}} 里取 message。 */
 function apiErrorMessage(body: unknown): string | undefined {
@@ -26,32 +29,57 @@ function apiErrorMessage(body: unknown): string | undefined {
   return typeof m === 'string' ? m : undefined;
 }
 
-let cached: { token: string; client: Anthropic } | null = null;
+function headerOf(h: HeadersInit | undefined, name: string): string | null {
+  return h ? new Headers(h).get(name) : null;
+}
+
+/**
+ * 交给 SDK 的 fetch：发出前过一遍白名单，不过就本地回一个 Anthropic 格式的错误（SDK 照常抛 APIError，4xx 不重试），
+ * 请求根本不出浏览器。过了就原样交给浏览器的 fetch。
+ */
+export async function guardedFetch(input: string | URL | Request, init?: RequestInit): Promise<Response> {
+  const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+  const method = init?.method ?? (input instanceof Request ? input.method : 'GET');
+  const body = typeof init?.body === 'string' ? init.body : init?.body == null && method.toUpperCase() !== 'POST' ? '' : null;
+  const problem = checkRequest({ method, url, beta: headerOf(init?.headers, 'anthropic-beta'), body });
+  if (problem) {
+    return new Response(JSON.stringify({ type: 'error', error: { type: 'invalid_request_error', message: LOCAL_BLOCK_PREFIX + problem.message } }), {
+      status: problem.status,
+      headers: { 'content-type': 'application/json' },
+    });
+  }
+  return fetch(input, init);
+}
+
+let cached: { key: string; client: Anthropic } | null = null;
 
 /** 动态加载 SDK 模块（只加载一次）。错误类（Anthropic.APIError 等）也从这里拿。 */
 export function loadSdk(): Promise<typeof import('@anthropic-ai/sdk')> {
   return import('@anthropic-ai/sdk');
 }
 
-/** 按口令拿客户端（口令变了就换一个）。没设口令时抛 NoTokenError，界面上提示去设置页。 */
-export async function getClient(appToken: string): Promise<Anthropic> {
-  if (!appToken) throw new NoTokenError();
-  if (cached?.token === appToken) return cached.client;
+/** 按 API key 拿客户端（key 变了就换一个）。没填 key 时抛 NoKeyError，界面上提示去设置页。 */
+export async function getClient(apiKey: string): Promise<Anthropic> {
+  const key = apiKey.trim();
+  if (!key) throw new NoKeyError();
+  if (cached?.key === key) return cached.client;
   const { default: Anthropic } = await loadSdk();
   const client = new Anthropic({
-    baseURL: `${location.origin}${PROXY_PATH}`,
-    apiKey: appToken,
+    apiKey: key,
+    baseURL: API_BASE,
     dangerouslyAllowBrowser: true,
+    defaultHeaders: { 'anthropic-dangerous-direct-browser-access': 'true' },
+    fetch: guardedFetch,
     maxRetries: 2,
   });
-  cached = { token: appToken, client };
+  cached = { key, client };
   return client;
 }
 
-export class NoTokenError extends Error {
+export class NoKeyError extends Error {
   constructor() {
-    super('还没设应用口令，去设置页填一下');
-    this.name = 'NoTokenError';
+    super('还没填 API key，去设置页填一下');
+    this.name = 'NoKeyError';
   }
 }
 
@@ -74,31 +102,29 @@ export function betaParams(purpose: Purpose, settings?: Pick<Settings, 'models'>
     : p;
 }
 
-/** 设置页"测一下口令"：发一句最短的 Haiku 请求，看代理和口令是不是通的。花费不到 $0.0001。 */
-export async function ping(appToken: string): Promise<{ ok: true; model: string } | { ok: false; status?: number; message: string }> {
-  const { default: Anthropic } = await loadSdk();
+/** 设置页"测一下"：直连发一句最短的 Haiku 请求，看 key 和网络是不是通的。花费不到 $0.0001。 */
+export async function ping(apiKey: string): Promise<{ ok: true; model: string } | { ok: false; status?: number; message: string }> {
   try {
-    const client = await getClient(appToken);
-    const msg = await client.messages.create({
-      model: 'claude-haiku-5-5',
-      max_tokens: 64,
-      thinking: { type: 'adaptive' },
-      output_config: { effort: 'low' },
-      messages: [{ role: 'user', content: '回一个字：好' }],
-    });
-    return { ok: true, model: msg.model };
-  } catch (e) {
-    if (e instanceof NoTokenError) return { ok: false, message: e.message };
-    if (e instanceof Anthropic.APIError) {
-      const detail = apiErrorMessage(e.error);
-      // 代理自己拒的 401 和上游拒真 key 的 401 要分开说，不然分不清是口令错还是服务器 key 坏了
-      if (e.status === 401) {
-        return detail === PROXY_BAD_TOKEN
-          ? { ok: false, status: 401, message: '应用口令不对' }
-          : { ok: false, status: 401, message: `口令对了，但服务器上的 API key 被 Anthropic 拒了：${detail ?? '未知原因'}` };
-      }
-      return { ok: false, status: e.status, message: detail ?? e.message };
+    const { default: Anthropic } = await loadSdk();
+    try {
+      const client = await getClient(apiKey);
+      const msg = await client.messages.create({
+        model: 'claude-haiku-5-5',
+        max_tokens: 64,
+        thinking: { type: 'adaptive' },
+        output_config: { effort: 'low' },
+        messages: [{ role: 'user', content: '回一个字：好' }],
+      });
+      return { ok: true, model: msg.model };
+    } catch (e) {
+      if (e instanceof NoKeyError) return { ok: false, message: e.message };
+      if (e instanceof Anthropic.AuthenticationError) return { ok: false, status: 401, message: 'API key 不对（Anthropic 不认）' };
+      if (e instanceof Anthropic.PermissionDeniedError) return { ok: false, status: 403, message: `这个 key 没权限：${apiErrorMessage(e.error) ?? ''}` };
+      if (e instanceof Anthropic.APIConnectionError) return { ok: false, message: '连不上 api.anthropic.com（断网了？）' };
+      if (e instanceof Anthropic.APIError) return { ok: false, status: e.status, message: apiErrorMessage(e.error) ?? e.message };
+      return { ok: false, message: String(e) };
     }
-    return { ok: false, message: String(e) };
+  } catch (e) {
+    return { ok: false, message: `SDK 没加载出来：${String(e)}` };
   }
 }

@@ -1,7 +1,7 @@
 /**
  * 小克聊天的一轮：拼请求（context.ts）→ 流式调用 → 输出守卫 → 追加历史 → 记账 → 存库。
  *
- * 调 API 的函数从外面传进来（StreamFn）：浏览器里走代理的 SDK（browserStream），本地真跑脚本直连，单测是假的。
+ * 调 API 的函数从外面传进来（StreamFn）：浏览器里直连 Anthropic 的 SDK（browserStream），本地真跑脚本直连，单测是假的。
  *
  * 两份记录：
  * - messages：发给 API 的历史，只追加不改写。助手回复原样存（含 thinking 块和签名），守卫不碰它——
@@ -93,7 +93,8 @@ function textOf(msg: BetaMessage): string {
 function errorText(e: unknown): string {
   const status = (e as { status?: number }).status;
   const inner = (e as { error?: { error?: { message?: unknown } } }).error?.error?.message;
-  if (status === 401) return typeof inner === 'string' && inner === '应用口令不对' ? '应用口令不对，去设置里改一下' : `服务器上的 API key 有问题（${String(inner ?? 401)}）`;
+  if (status === 401) return 'API key 不对（Anthropic 不认），去设置里改一下';
+  if (status === 403) return `这个 API key 没权限（${String(inner ?? 403)}）`;
   if (status === 429) return '请求太频繁了，等一会儿再问';
   if (status && status >= 500) return `Anthropic 那边出错了（${status}），过一会儿再试`;
   if (status) return `请求被拒了（${status}）：${String(inner ?? (e as Error).message)}`;
@@ -202,10 +203,10 @@ export async function resumeOrNew(d: ReaderDB, bookId: string, chapter: number, 
   return newSession(bookId, chapter, model);
 }
 
-/** 浏览器里用：走同站代理，流式。SDK 第一次发请求时才加载。 */
-export function browserStream(getToken: () => string): StreamFn {
+/** 浏览器里用：拿设置里的 key 直连 Anthropic，流式。SDK 第一次发请求时才加载。 */
+export function browserStream(getKey: () => string): StreamFn {
   return async (params, onText) => {
-    const c = await getClient(getToken());
+    const c = await getClient(getKey());
     const s = c.beta.messages.stream(params);
     s.on('text', (delta) => onText(delta));
     return s.finalMessage();

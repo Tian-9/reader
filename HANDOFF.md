@@ -1,9 +1,10 @@
 # HANDOFF
 
-## 当前状态（2026-11-04，T1–T5 代码完成，未部署）
+## 当前状态（2026-11-04，T1–T5 完成，已改直连模式，待上线）
 
-T1 骨架/代理、T2 导入+阅读、T3 标注+词库、T4 小克抽屉+前情摘要、T5 生词导出+备份+花费面板都在本地跑通。MVP 的代码部分到此齐了。
-**还差什么才能给她用，看最后一节"收口清单"。** 没部署、没设 secret、没推 GitHub（仓库只在本地 git）。
+T1 骨架、T2 导入+阅读、T3 标注+词库、T4 小克抽屉+前情摘要、T5 生词导出+备份+花费面板都在本地跑通。MVP 的代码部分到此齐了。
+**2026-11-04 她定：不要代理、不要托管后端，改成 pocketverse 同款"设置页本地填 key、浏览器直连 Anthropic"，静态部署到 GitHub Pages。** 已改完并真跑验过，见下面"直连模式"一节；代理代码存档在 `legacy/`。
+**还差什么才能给她用，看最后一节"收口清单"。**
 本机真跑 key 在 `~/.config/reader/key`（2026-11-04 她给的），`bash scripts/real-all.sh` 自动读；真跑结果见 T3/T4 段的"真跑"小节。
 
 **2026-11-04 她定的改动**：去掉地域人设（"都柏林人怎么说"之类），先普通聊。标注/点词/小克三个 prompt 删掉了住在都柏林、爱尔兰用法相关的句子，fun_type「爱尔兰/方言」改成「方言/口音」，三个 PROMPT_VERSION 各 +1（已标过的组读到时会重标）。PLAN 3.1/3.2 同步，`test/prompts.test.ts` 现在逐字核对 prompt 和 PLAN。提交 `c721ea2`。
@@ -36,7 +37,39 @@ T1 骨架/代理、T2 导入+阅读、T3 标注+词库、T4 小克抽屉+前情�
 4. **SDK 懒加载**：首屏只有 Dexie + Svelte（gzip 约 50KB），SDK（gzip 约 80KB）第一次调 API 才下载，service worker 照样预缓存，离线不受影响。
 5. **设置页有个"测一下口令"按钮**：发一句最短的 Haiku 请求（< $0.0001）。能分清"口令不对"和"口令对了但服务器上的 key 被 Anthropic 拒了"。
 
-## 待她做（剧组不碰）
+## 直连模式 + GitHub Pages（2026-11-04 改）
+
+PLAN 2.6 / 2.7 已改写（原方案存档在两节末尾）。
+
+**改了什么**
+- `src/llm/client.ts`：`new Anthropic({ apiKey, baseURL: 'https://api.anthropic.com', dangerouslyAllowBrowser: true, defaultHeaders: { 'anthropic-dangerous-direct-browser-access': 'true' }, fetch: guardedFetch })`。`guardedFetch` 每个请求发出前过 `roles.ts` 的 `checkRequest`（原代理的路径/方法/查询参数/beta 头/体积/模型/max_tokens/fallbacks/fast mode 检查原样搬过来），不过的本地回 400、请求不出浏览器。`NoTokenError` → `NoKeyError`。
+- `Settings.apiKey`（新字段）存 Dexie settings 表（= pocketverse 的存法：IndexedDB，和其他设置一起）。`appToken` 改成可选的遗留字段，`normalizeSettings` 读到就扔。备份不带 apiKey / appToken，导入保留本机 key；`validate-export.mjs` 见到这两个字段判不过。
+- 设置页：「应用口令」换成「Anthropic API key」密码框（有"显示"），"测一下"先保存再直连 ping，分得清 401（key 不对）/ 403（没权限）/ 断网。
+- `vite.config.ts`：`base: '/reader/'`；manifest `id / scope / start_url = /reader/`；workbox `navigateFallback: 'index.html'`（相对 sw.js）；`cspMeta()` 插件只在 build 时往 `<head>` 最前面注入 CSP meta：`default-src 'self'; connect-src 'self' https://api.anthropic.com; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self'`。`__BUILD__` 在 CI 上带 commit 短 hash。
+- `index.html`：`<meta name="robots" content="noindex, nofollow">`，图标用 `%BASE_URL%`。`public/_headers` 删了（GitHub Pages 不认）。
+- `.github/workflows/pages.yml`（推 main → lint → build → upload-pages-artifact → deploy-pages）+ `ci.yml`（非 main 分支跑 lint + build），和 pocketverse 同一套。
+- 代理 `functions/`、`wrangler.toml`、`proxy.test.ts` → `legacy/`（有 README），tsconfig / vitest 不含它。`package.json` 删了 `proxy:dev`，`preview` 固定 4173 端口。
+- 单测：新 `test/direct.test.ts`（代理的限额用例搬过来 + 真 SDK 打桩验：地址是 api.anthropic.com/v1/messages、带直连头、key 在请求头、白名单外的请求不发网络、401 文案）；`test/roles.test.ts` 改成核对 roles.ts 自己的白名单，并加了"每个用途 × 每个模型的 baseParams/betaParams 都过 checkBody"。
+- `t4-browser.mjs` / `t5-browser.mjs`：拦截目标从 `/api/anthropic/*` 改成 `https://api.anthropic.com/*`（假回复带 CORS 头），默认地址 `http://localhost:4173/reader/`。
+- 测试和脚本里的假 key 一律不用 Anthropic key 的前缀（公开仓库要能用 `git log --all -p | grep -cE 'sk-an[t]'` = 0 做闸门）。
+
+**验收（真请求）**：`node scripts/direct-browser.mjs`（`npm run preview` 的 `/reader/` 下，真 SW、真 CSP、key 从 `~/.config/reader/key` 用 CDP 打进密码框，不打印；临时 Chrome 配置跑完即删）—— **11/11 过**：
+
+| 项 | 结果 |
+|---|---|
+| `npm run lint` / `npm run build` | 过（0 错 0 警告；113 个单测 + 1 个跳过） |
+| CSP meta、noindex | 都在，CSP 和上面一字不差 |
+| manifest（加到主屏幕用） | `/reader/manifest.webmanifest` 能取，scope / start_url / id = `/reader/`，standalone，3 个图标都 200，Chrome 解析 0 错误 |
+| service worker | 注册在 `/reader/sw.js`，scope `/reader/`，刷新后接管页面 |
+| 断网刷新 | 能打开 |
+| 设置页填 key → 测一下 | "通了（claude-haiku-5-5）"；IndexedDB 里存了 apiKey、没有 appToken；输入框是 password |
+| 导入彼得潘 → 真标注 | 52 段，真标注回来 26 处生词虚线 + 4 个 ※ |
+| 浏览器直连 | 预检 OPTIONS 200 + 两次 POST 200，`access-control-allow-origin: *`；没连任何别的第三方；0 次 CSP 违规、0 个页面报错 |
+| 花费 | $0.0042（1 组标注；ping 不记账，< $0.0001） |
+| 截图 390px | `shots/direct-settings.png`（设置页，测一下成功）、`shots/direct-annotate.png`（真标注） |
+| 回归（假 API） | `t4-browser.mjs` 10/10、`t5-browser.mjs` 全过（都在 `/reader/` 子路径 + 直连下） |
+
+## 待她做（剧组不碰）—— 代理时代的，直连后作废，留着备查
 
 1. Cloudflare Pages 建项目 `reader` 并第一次部署（总台处理）。
 2. 设两个 secret：
@@ -283,17 +316,16 @@ bash scripts/real-all.sh          # 顺序跑 t3-real（≤$1.5）+ t4-real（�
 
 ## 收口清单（还差什么才能部署给她用）
 
-按顺序，打勾的是剧组已做完的：
+2026-11-04 改直连 + GitHub Pages 后重排。打勾的是剧组已做完的：
 
 - [x] T1–T5 代码、单测、headless 验收（假 API）
-- [ ] **她**：Cloudflare Pages 建项目 `reader`、第一次部署授权（总台跑 `npm run build && ~/node_modules/.bin/wrangler pages deploy dist --project-name reader --branch main`，授权她点）
-- [ ] **她**：设两个 secret（只有她敲）：`wrangler pages secret put APP_TOKEN --project-name reader`、`wrangler pages secret put ANTHROPIC_API_KEY --project-name reader`；Anthropic 控制台给 key 所在 workspace 设月度上限
-- [x] 本机真跑（key 在 `~/.config/reader/key`，`bash scripts/real-all.sh`）：T3 锚定 98.8%、T4 9/9 过，实测花费已填进 PLAN 第 6 节。本轮合计约 $0.18（含两次撞截断的半截跑）
-- [ ] **她**：看 `shots/t3-ch{1,5,12}.png` 和 `-sonnet.png` 拍板标注 prompt / 标注要不要换 Sonnet（Haiku 全书约 $0.25，Sonnet 约 $2.9）；看 `shots/t4-data/report.json` 里小克的原话
-- [ ] 部署后线上验：设置页"测一下口令"显示"通了"；手机上导入一本、点词、问小克、读完一章看前情有没有生成（设置页花费面板下有"前情摘要已生成 N 章"）；设置页看"已申请持久存储"加到主屏幕后是不是"是"
+- [x] 本机真跑（`bash scripts/real-all.sh`）：T3 锚定 98.8%、T4 9/9 过，实测花费已填进 PLAN 第 6 节
+- [x] 改直连模式（设置页填 key、浏览器直连、白名单挪到客户端、CSP meta、base `/reader/`、Pages 工作流），真请求验收 11/11（见"直连模式"一节）
+- [ ] **建公开仓 `reader` + push**（她已同意公开）→ Settings → Pages → Source 选 "GitHub Actions" → 等 Actions 部署完，`https://<用户>.github.io/reader/` 返回 200
+- [ ] **她**：手机打开网址 → 加到主屏幕 → 设置页填 Anthropic API key → 点"测一下"显示"通了"
+- [ ] **她**：导入一本书（彼得潘或 HP）→ 看标注出来、点词、问小克、读完一章看前情（设置页花费面板下有"前情摘要已生成 N 章"）；设置页看"已申请持久存储"加到主屏幕后是不是"是"
+- [ ] **她**：Anthropic 控制台给这个 key 所在 workspace 设月度花费上限（key 存在手机里，丢了也有上限）
+- [ ] 手机上断网再开一次（桌面 headless 已验）
+- [ ] **她**：看 `shots/t3-ch{1,5,12}.png` 和 `-sonnet.png` 拍板标注 prompt / 要不要换 Sonnet（Haiku 全书约 $0.25，Sonnet 约 $2.9）；看 `shots/t4-data/report.json` 里小克的原话
 - [ ] 第一次导出生词交给 Claude 导进背单词页：定 HP 的词放哪个 collection / 哪一页（PLAN T5），看 context_zh 只有"第 N 章"够不够
-- [ ] 手机上加到主屏幕、断网再开（T1 遗留的手机部分）
 - [ ] AO3 EPUB 验一次（T2 遗留，AO3 维护结束后）
-- [x] T5：生词导出 + 备份 + 花费面板（单测 + headless 验收过）
-- [ ] 推 GitHub（私有仓库，PLAN 第 7 节）：剧组没推，总台/她定
-- 提交：T4 `e4e0da1`、去人设+截断兜底 `c721ea2`、T5 见 git log。全部已 commit，工作区干净

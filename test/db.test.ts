@@ -41,7 +41,7 @@ describe('Dexie 表', () => {
     await d.progress.put({ bookId: 'sha', paraId: 'c01p0001', updatedAt: 1 });
     await d.summaries.put({ bookId: 'sha', chapter: 1, textZh: '…', model: 'claude-haiku-5-5' });
     const id = await d.ledger.add({ ts: 1, bookId: 'sha', purpose: 'annotate', model: 'claude-haiku-5-5', input: 1, output: 1, cacheRead: 0, cacheWrite: 0, usd: 0.000001 });
-    await d.settings.put({ key: 'app', appToken: '', level: 'B1', noSpoilers: false, models: {} });
+    await d.settings.put({ key: 'app', apiKey: '', level: 'B1', noSpoilers: false, models: {} });
 
     expect((await d.chapters.get(['sha', 1]))?.title).toBe('Peter Breaks Through');
     expect(await d.chunks.where('[bookId+status]').equals(['sha', 'todo']).count()).toBe(1);

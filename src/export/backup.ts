@@ -1,8 +1,8 @@
 /**
  * 词库备份（PLAN 2.5 兜底 / T5）：整个 words 表 + 设置 → 一个 JSON；导入时按 lemma 合并，导入的覆盖同 lemma。
  *
- * - **备份里不带应用口令（appToken）**：备份文件会进下载目录、可能发给 Claude 会话，口令一漏别人就能花她的额度。
- *   导入时保留本机当前的口令；清空站点数据后导入，口令要重新填一次。
+ * - **备份里不带 API key（apiKey，也不带遗留的 appToken）**：备份文件会进下载目录、可能发给 Claude 会话，key 一漏别人就能花她的额度。
+ *   导入时保留本机当前的 key；清空站点数据后导入，key 要重新填一次。
  * - 书、标注、聊天、账本不进备份（书有版权、其余能重新生成）。
  */
 import type { ReaderDB } from '../db/db';
@@ -15,13 +15,13 @@ export interface Backup {
   version: 1;
   exportedAt: number;
   words: Word[];
-  settings: Omit<Settings, 'appToken'>;
+  settings: Omit<Settings, 'apiKey' | 'appToken'>;
 }
 
 export async function buildBackup(d: ReaderDB): Promise<Backup> {
   const words = await d.words.toArray();
   const row = await d.settings.get('app');
-  const { key: _k, appToken: _t, ...rest } = row ?? { key: 'app' as const, ...normalizeSettings(undefined) };
+  const { key: _k, apiKey: _a, appToken: _t, ...rest } = row ?? { key: 'app' as const, ...normalizeSettings(undefined) };
   return { format: 'reader-backup', version: 1, exportedAt: Date.now(), words, settings: rest };
 }
 
@@ -58,10 +58,10 @@ export interface ImportResult {
 }
 
 /**
- * 合并导入：同 lemma 用备份里的整行覆盖，备份里没有的本机词保留。设置用备份覆盖，口令保留本机的（keepToken）。
+ * 合并导入：同 lemma 用备份里的整行覆盖，备份里没有的本机词保留。设置用备份覆盖，API key 保留本机的（keepKey）。
  * 一个事务里做完，中途出错整个回滚。
  */
-export async function importBackup(d: ReaderDB, b: Backup, keepToken?: string): Promise<ImportResult> {
+export async function importBackup(d: ReaderDB, b: Backup, keepKey?: string): Promise<ImportResult> {
   return d.transaction('rw', d.words, d.settings, async () => {
     // 规范化后同 lemma 的，后出现的赢（和"导入的覆盖"同一个规矩）
     const byLemma = new Map<string, Word>();
@@ -70,9 +70,9 @@ export async function importBackup(d: ReaderDB, b: Backup, keepToken?: string): 
     const existing = await d.words.bulkGet(rows.map((w) => w.lemma));
     await d.words.bulkPut(rows);
     const cur = await d.settings.get('app');
-    const { appToken: _t, ...incoming } = (b.settings ?? {}) as Partial<Settings>;
+    const { apiKey: _a, appToken: _t, ...incoming } = (b.settings ?? {}) as Partial<Settings>;
     const merged = normalizeSettings({ ...(cur ?? {}), ...incoming });
-    merged.appToken = keepToken ?? cur?.appToken ?? '';
+    merged.apiKey = keepKey ?? cur?.apiKey ?? '';
     await d.settings.put({ key: 'app', ...merged });
     return { imported: rows.length, replaced: existing.filter(Boolean).length, total: await d.words.count() };
   });

@@ -32,7 +32,7 @@
 
   const deps: ChatDeps = {
     d: db(),
-    stream: browserStream(() => settings.appToken),
+    stream: browserStream(() => settings.apiKey),
     settings: () => settings,
     log: (m, x) => console.debug(m, x ?? ''),
   };
@@ -84,8 +84,8 @@
   async function send() {
     const q = input.trim();
     if (!q || streaming !== null) return;
-    if (!settings.appToken) {
-      error = '还没设应用口令，去设置页填一下';
+    if (!settings.apiKey.trim()) {
+      error = '还没填 API key，去设置页填一下';
       return;
     }
     error = '';

@@ -7,7 +7,7 @@
 // - 生词导出：数组，每条是背单词页 words 集合的形状 {en, zh, lesson, cluster, key, gloss_zh, context_zh, root, mishearing, mnemonic}
 //   en / zh 必填非空；其余是字符串（可空）；不许多字段；lesson 形如 "PeterPan-ch03"；en ≤5 个词；en 不重复。
 //   版权红线：除 en 外任何字段里出现 ≥6 个连续英文词 → 不过（"不带英文原句"）。
-// - 词库备份：{format:"reader-backup", version:1, exportedAt, words:[…], settings:{…}}，settings 里不许有 appToken。
+// - 词库备份：{format:"reader-backup", version:1, exportedAt, words:[…], settings:{…}}，settings 里不许有 apiKey / appToken。
 //
 // 和 app 里的导出代码是两份独立实现（故意的），test/export.test.ts 拿 app 的导出结果过这里。
 import { readFileSync } from 'node:fs';
@@ -81,7 +81,10 @@ export function validateBackup(data) {
     });
   }
   if (!data.settings || typeof data.settings !== 'object' || Array.isArray(data.settings)) errs.push('settings 必须是对象');
-  else if ('appToken' in data.settings) errs.push('settings 里不许带 appToken（备份文件会到处传）');
+  else {
+    if ('apiKey' in data.settings) errs.push('settings 里不许带 apiKey（备份文件会到处传）');
+    if ('appToken' in data.settings) errs.push('settings 里不许带 appToken（备份文件会到处传）');
+  }
   return errs;
 }
 

@@ -80,9 +80,9 @@ export class Annotator {
   }
 }
 
-/** 浏览器里用：走同站代理。SDK 在第一次真的要发请求时才加载（全部已标好时连 SDK 都不下载）。 */
-export function browserCreate(getToken: () => string): CreateFn {
-  return async (params) => (await getClient(getToken())).messages.create(params);
+/** 浏览器里用：拿设置里的 key 直连 Anthropic。SDK 在第一次真的要发请求时才加载（全部已标好时连 SDK 都不下载）。 */
+export function browserCreate(getKey: () => string): CreateFn {
+  return async (params) => (await getClient(getKey())).messages.create(params);
 }
 
 let shared: Annotator | null = null;
@@ -91,7 +91,7 @@ let shared: Annotator | null = null;
 export function getAnnotator(settings: () => Settings): Annotator {
   shared ??= new Annotator({
     d: db(),
-    create: browserCreate(() => settings().appToken),
+    create: browserCreate(() => settings().apiKey),
     settings,
     log: (m, x) => console.debug(m, x ?? ''),
   });

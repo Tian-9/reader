@@ -37,7 +37,7 @@ export function useAutoSummary(): void {
       title = ch?.title ?? `第${chapter}章`;
       done = dn;
     }
-    const n = summaryToTrigger({ chapter, chapterParaIds: paraIds, visibleParaIds: visible, done, hasToken: !!settings.appToken });
+    const n = summaryToTrigger({ chapter, chapterParaIds: paraIds, visibleParaIds: visible, done, hasToken: !!settings.apiKey.trim() });
     if (n === null) return;
     done.add(n);
     summarizer.ensure(bookId, n, title).catch((e) => {

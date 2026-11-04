@@ -1,7 +1,7 @@
 // T5 浏览器验收（headless Chrome，CDP 驱动，390px 手机宽）：真实构建产物，不调 API。
 //
 //   npm run build && npx vite preview --port 4173 &      # 先起静态预览
-//   node scripts/t5-browser.mjs [http://localhost:4173] [--out shots]
+//   node scripts/t5-browser.mjs [http://localhost:4173/reader/] [--out shots]
 //
 // 走一遍：往 IndexedDB 塞一本书 + 词库 + 账本 → 设置页：花费面板和账本求和对账（< $0.001）、持久存储状态、截 t5-settings.png
 // → 点"导出生词"，下载的文件过 scripts/validate-export.mjs → 点"备份词库"，备份也过校验
@@ -16,7 +16,7 @@ import { validateExport } from './validate-export.mjs';
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const argv = process.argv.slice(2);
 const opt = (n, d) => (argv.includes(n) ? argv[argv.indexOf(n) + 1] : d);
-const BASE = argv[0] && !argv[0].startsWith('--') ? argv[0] : 'http://localhost:4173';
+const BASE = argv[0] && !argv[0].startsWith('--') ? argv[0] : 'http://localhost:4173/reader/';
 const OUT = path.resolve(opt('--out', 'shots'));
 mkdirSync(path.join(OUT, 't5-data'), { recursive: true });
 
@@ -49,7 +49,7 @@ const LEDGER = [
   ...L('summary', 'claude-haiku-5-5', 0.00041, 8),
   ...L('chat', 'claude-sonnet-5-5', 0.0187, 11),
   ...L('chat', 'claude-opus-5-5', 0.0362, 2),
-  { ts: now, purpose: 'chat', model: 'claude-haiku-5-5', input: 10, output: 2, cacheRead: 0, cacheWrite: 0, usd: 0.00002 }, // 没挂书（测口令）
+  { ts: now, purpose: 'chat', model: 'claude-haiku-5-5', input: 10, output: 2, cacheRead: 0, cacheWrite: 0, usd: 0.00002 }, // 没挂书（设置页"测一下"）
 ];
 
 // ───────── CDP ─────────
@@ -153,7 +153,7 @@ try {
   await send('Page.navigate', { url: BASE });
   await waitFor(`document.querySelector('header h1')?.textContent === '阅读'`);
   await sleep(300);
-  await idbPut('settings', [{ key: 'app', appToken: 'mock-token', level: 'B2', noSpoilers: true, models: { chat: 'claude-opus-5-5' }, readSize: 22 }]);
+  await idbPut('settings', [{ key: 'app', apiKey: 'mock-key-not-real', level: 'B2', noSpoilers: true, models: { chat: 'claude-opus-5-5' }, readSize: 22 }]);
   await idbPut('books', [{ id: BOOK, title: 'Peter Pan', author: 'J. M. Barrie', addedAt: now - 86400000 }]);
   await idbPut('progress', [{ bookId: BOOK, paraId: 'c03p0002', updatedAt: now }]);
   await idbPut('summaries', [1, 2].map((chapter) => ({ bookId: BOOK, chapter, textZh: '（自编摘要）', model: 'claude-haiku-5-5' })));
@@ -207,7 +207,7 @@ try {
   const backupFile = await waitDownload('词库备份-');
   const backup = JSON.parse(readFileSync(backupFile, 'utf8'));
   const b = validateExport(backup);
-  step('备份文件过校验、不含口令', b.kind === 'backup' && b.errors.length === 0 && !readFileSync(backupFile, 'utf8').includes('mock-token'), { words: backup.words.length, errors: b.errors.slice(0, 3) });
+  step('备份文件过校验、不含 API key', b.kind === 'backup' && b.errors.length === 0 && !readFileSync(backupFile, 'utf8').includes('mock-key-not-real'), { words: backup.words.length, errors: b.errors.slice(0, 3) });
   const before = (await idbAll('words')).length;
 
   // 5. 清空站点数据
@@ -217,7 +217,7 @@ try {
   await waitFor(`document.querySelector('header h1')?.textContent === '阅读'`);
   await sleep(500);
   const afterClear = (await idbAll('words')).length;
-  const tokenAfterClear = (await idbAll('settings'))[0]?.appToken ?? '';
+  const tokenAfterClear = (await idbAll('settings'))[0]?.apiKey ?? '';
   step('清空站点数据后词库为 0', afterClear === 0 && tokenAfterClear === '', { before, afterClear });
 
   // 6. 从备份恢复
@@ -230,7 +230,7 @@ try {
   const settingsRow = (await idbAll('settings'))[0];
   const counts1 = await evaluate(`document.querySelector('[data-test=word-counts]').textContent`);
   step('导入备份后词库条数和清空前一致', restored.length === before && counts1 === counts0, { before, after: restored.length, msg, counts: counts1 });
-  step('设置也恢复了（水平、防剧透、聊天模型、字号）', settingsRow?.level === 'B2' && settingsRow?.noSpoilers === true && settingsRow?.models?.chat === 'claude-opus-5-5' && settingsRow?.readSize === 22, settingsRow && { ...settingsRow, appToken: settingsRow.appToken ? '(有)' : '(空)' });
+  step('设置也恢复了（水平、防剧透、聊天模型、字号）', settingsRow?.level === 'B2' && settingsRow?.noSpoilers === true && settingsRow?.models?.chat === 'claude-opus-5-5' && settingsRow?.readSize === 22, settingsRow && { ...settingsRow, apiKey: settingsRow.apiKey ? '(有)' : '(空)' });
   const same = WORDS.every((w) => {
     const r = restored.find((x) => x.lemma === w.lemma);
     return r && r.status === w.status && r.glossZh === w.glossZh && r.taps === w.taps;

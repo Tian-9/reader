@@ -20,13 +20,13 @@
     C2: '接近母语',
   };
 
-  let showToken = $state(false);
+  let showKey = $state(false);
   let saved = $state(false);
   let testing = $state(false);
   let testResult: string | null = $state(null);
 
   async function save() {
-    settings.appToken = settings.appToken.trim();
+    settings.apiKey = settings.apiKey.trim();
     await saveSettings();
     saved = true;
     setTimeout(() => (saved = false), 1500);
@@ -35,7 +35,10 @@
   async function test() {
     testing = true;
     testResult = null;
-    const r = await ping(settings.appToken.trim());
+    // 先存：测通了的 key 不用再点一次保存
+    settings.apiKey = settings.apiKey.trim();
+    await saveSettings();
+    const r = await ping(settings.apiKey);
     testResult = r.ok ? `通了（${r.model}）` : `没通：${r.message}${r.status ? `（${r.status}）` : ''}`;
     testing = false;
   }
@@ -90,7 +93,7 @@
     try {
       const b = await buildBackup(db());
       downloadJson(`词库备份-${today()}.json`, b);
-      vocabMsg = `备份了 ${b.words.length} 个词和设置（不含应用口令）。`;
+      vocabMsg = `备份了 ${b.words.length} 个词和设置（不含 API key）。`;
     } catch (e) {
       vocabMsg = `备份失败：${(e as Error).message}`;
     } finally {
@@ -106,11 +109,11 @@
     busy = true;
     try {
       const b = parseBackup(await file.text());
-      const r = await importBackup(db(), b, settings.appToken.trim());
+      const r = await importBackup(db(), b, settings.apiKey.trim());
       await loadSettings();
       chatModel = settings.models.chat ?? ROLES.chat.model;
       await refresh();
-      vocabMsg = `导入了 ${r.imported} 个词（其中 ${r.replaced} 个覆盖了本机原有的），词库现在共 ${r.total} 个。设置也恢复了，口令保留本机的。`;
+      vocabMsg = `导入了 ${r.imported} 个词（其中 ${r.replaced} 个覆盖了本机原有的），词库现在共 ${r.total} 个。设置也恢复了，API key 保留本机的。`;
     } catch (err) {
       vocabMsg = `没导入：${(err as Error).message}`;
     } finally {
@@ -121,24 +124,25 @@
 
 <form onsubmit={(e) => { e.preventDefault(); save(); }}>
   <label class="field">
-    <span>应用口令</span>
+    <span>Anthropic API key</span>
     <div class="row">
       <input
-        type={showToken ? 'text' : 'password'}
+        type={showKey ? 'text' : 'password'}
         autocomplete="off"
         autocapitalize="off"
         spellcheck="false"
-        bind:value={settings.appToken}
-        placeholder="部署时设的 APP_TOKEN"
+        bind:value={settings.apiKey}
+        placeholder="粘贴 key（sk- 开头那串）"
+        data-test="api-key"
       />
-      <button type="button" onclick={() => (showToken = !showToken)}>{showToken ? '隐藏' : '显示'}</button>
+      <button type="button" onclick={() => (showKey = !showKey)}>{showKey ? '隐藏' : '显示'}</button>
     </div>
-    <small class="muted">不是 API key，只是让代理认出你。真 key 只放在服务器上。</small>
+    <small class="muted">在 console.anthropic.com 建一个 key 填这里。它只存在这台手机的浏览器数据库里，请求直接发给 Anthropic，不经过别的服务器；备份文件里也不带它。建议在 Anthropic 控制台给它设个月度花费上限。</small>
   </label>
 
   <div class="row">
-    <button type="button" onclick={test} disabled={!settings.appToken || testing}>{testing ? '测试中…' : '测一下口令'}</button>
-    {#if testResult}<span class="result">{testResult}</span>{/if}
+    <button type="button" onclick={test} disabled={!settings.apiKey.trim() || testing} data-test="ping">{testing ? '测试中…' : '测一下'}</button>
+    {#if testResult}<span class="result" data-test="ping-result">{testResult}</span>{/if}
   </div>
 
   <label class="field">
@@ -197,7 +201,7 @@
       <p class="muted small">还没导入书。</p>
     {/if}
     {#if spendAll && spendAll.calls}
-      <p class="muted small">所有书合计 {formatUsd(spendAll.usd)}（含"测一下口令"）。按模型：{spendAll.byModel.map((m) => `${modelShort(m.model)} ${formatUsd(m.usd)}`).join('，')}</p>
+      <p class="muted small">所有书合计 {formatUsd(spendAll.usd)}（含"测一下"）。按模型：{spendAll.byModel.map((m) => `${modelShort(m.model)} ${formatUsd(m.usd)}`).join('，')}</p>
     {/if}
     <small class="muted block">数字来自本机账本（每次调用按 token 数和单价算），和 Anthropic 账单可能差几分钱。</small>
   </section>

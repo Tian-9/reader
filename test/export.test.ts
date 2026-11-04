@@ -90,13 +90,14 @@ describe('生词导出', () => {
 });
 
 describe('词库备份', () => {
-  it('备份过校验、不带口令；清空数据后导入，词库条数一致、设置恢复', async () => {
+  it('备份过校验、不带 API key（也不带遗留口令）；清空数据后导入，词库条数一致、设置恢复', async () => {
     const d = open('t-bak-1');
     await seed(d);
-    await d.settings.put({ key: 'app', ...DEFAULT_SETTINGS, appToken: 'secret-token', level: 'B2', noSpoilers: true, readSize: 24 });
+    await d.settings.put({ key: 'app', ...DEFAULT_SETTINGS, apiKey: 'test-key-secret', appToken: 'old-token', level: 'B2', noSpoilers: true, readSize: 24 });
     const b = await buildBackup(d);
     expect(validateBackup(b)).toEqual([]);
-    expect(JSON.stringify(b)).not.toContain('secret-token');
+    expect(JSON.stringify(b)).not.toContain('test-key-secret');
+    expect(JSON.stringify(b)).not.toContain('old-token');
     const before = await d.words.count();
     const text = JSON.stringify(b);
 
@@ -104,30 +105,31 @@ describe('词库备份', () => {
     await d.delete();
     const fresh = open('t-bak-1');
     expect(await fresh.words.count()).toBe(0);
-    const r = await importBackup(fresh, parseBackup(text), 'new-token');
+    const r = await importBackup(fresh, parseBackup(text), 'test-key-new');
     expect(r).toEqual({ imported: before, replaced: 0, total: before });
     expect(await fresh.words.count()).toBe(before);
     expect(await fresh.words.get('rummage')).toEqual(b.words.find((w) => w.lemma === 'rummage'));
     const s = await fresh.settings.get('app');
-    expect(s).toMatchObject({ level: 'B2', noSpoilers: true, readSize: 24, appToken: 'new-token' });
+    expect(s).toMatchObject({ level: 'B2', noSpoilers: true, readSize: 24, apiKey: 'test-key-new' });
+    expect(s?.appToken).toBeUndefined();
   });
 
-  it('按 lemma 合并：同 lemma 用备份覆盖，本机多出来的保留，口令保留本机的', async () => {
+  it('按 lemma 合并：同 lemma 用备份覆盖，本机多出来的保留，API key 保留本机的（备份里夹带的 key 不覆盖）', async () => {
     const d = open('t-bak-2');
     await d.words.bulkPut([word('rummage', 'known', 'c01p0001', '旧释义'), word('local-only', 'unknown', 'c01p0001', '本机')]);
-    await d.settings.put({ key: 'app', ...DEFAULT_SETTINGS, appToken: 'mine' });
+    await d.settings.put({ key: 'app', ...DEFAULT_SETTINGS, apiKey: 'test-key-mine' });
     const b = parseBackup(
       JSON.stringify({
         format: 'reader-backup', version: 1, exportedAt: 1,
         words: [word('Rummage', 'learning', 'c03p0002', '翻找'), word('new-word', 'unknown', 'c02p0001', '新')],
-        settings: { level: 'C1', noSpoilers: false, models: {} },
+        settings: { level: 'C1', noSpoilers: false, models: {}, apiKey: 'test-key-smuggled' },
       }),
     );
     const r = await importBackup(d, b);
     expect(r).toEqual({ imported: 2, replaced: 1, total: 3 });
     expect(await d.words.get('rummage')).toMatchObject({ status: 'learning', glossZh: '翻找' });
     expect(await d.words.get('local-only')).toBeTruthy();
-    expect(await d.settings.get('app')).toMatchObject({ level: 'C1', appToken: 'mine' });
+    expect(await d.settings.get('app')).toMatchObject({ level: 'C1', apiKey: 'test-key-mine' });
   });
 
   it('坏文件一行不写：生词导出文件、非 JSON、版本不对、状态不对', async () => {
@@ -136,6 +138,7 @@ describe('词库备份', () => {
     expect(() => parseBackup('{"format":"reader-backup","version":2,"words":[]}')).toThrow(/版本/);
     expect(() => parseBackup('{"format":"reader-backup","version":1,"words":[{"lemma":"a","status":"meh"}]}')).toThrow(/状态/);
     expect(validateBackup({ format: 'reader-backup', version: 1, exportedAt: 1, words: [], settings: { appToken: 'x' } })[0]).toMatch(/appToken/);
+    expect(validateBackup({ format: 'reader-backup', version: 1, exportedAt: 1, words: [], settings: { apiKey: 'x' } })[0]).toMatch(/apiKey/);
   });
 });
 

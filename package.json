@@ -6,12 +6,11 @@
   "scripts": {
     "dev": "vite",
     "build": "node scripts/check-dist.mjs --before && vite build && node scripts/check-dist.mjs",
-    "preview": "vite preview",
+    "preview": "vite preview --port 4173",
     "check": "svelte-check --tsconfig ./tsconfig.json --fail-on-warnings",
     "test": "vitest run",
     "lint": "npm run check && npm run test",
-    "icons": "node scripts/make-icons.mjs",
-    "proxy:dev": "~/node_modules/.bin/wrangler pages dev dist --port 8788 --binding APP_TOKEN=dev-token --binding ANTHROPIC_API_KEY=fake-key-for-local-tests"
+    "icons": "node scripts/make-icons.mjs"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^7.3.1",

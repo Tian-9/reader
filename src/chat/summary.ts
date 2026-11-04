@@ -26,7 +26,7 @@ export function chapterFinished(chapterParaIds: readonly string[], visibleParaId
 }
 
 /**
- * 要不要给这一章生成摘要：读完了、还没有摘要、没在生成、有口令。返回要生成的章号或 null。
+ * 要不要给这一章生成摘要：读完了、还没有摘要、没在生成、填了 API key（hasToken）。返回要生成的章号或 null。
  * 纯函数，单测直接测；界面里每次可见段落变化时调用。
  */
 export function summaryToTrigger(x: {

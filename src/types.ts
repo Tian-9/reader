@@ -257,8 +257,12 @@ export interface LedgerEntry {
 // ───────────────────────── 设置 ─────────────────────────
 
 export interface Settings {
-  /** 应用口令。不是 API key，只是代理认人用的。 */
-  appToken: string;
+  /**
+   * Anthropic API key（直连模式，PLAN 2.6）。只存在这台设备的 IndexedDB，不进备份、不上传任何服务器（除了 api.anthropic.com 本身）。
+   */
+  apiKey: string;
+  /** @deprecated 代理模式的应用口令，直连后不用了。老库里可能还有，loadSettings 时丢掉。 */
+  appToken?: string;
   level: ReaderLevel;
   /** 防剧透，默认关（她熟 HP 中文版，PLAN 第 7 节） */
   noSpoilers: boolean;

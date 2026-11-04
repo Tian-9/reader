@@ -1,9 +1,9 @@
-// T4 浏览器验收（headless Chrome，CDP 驱动，390px 手机宽）：真实的构建产物 + 真 SDK，只把 /api/anthropic/* 用假回复顶掉。
+// T4 浏览器验收（headless Chrome，CDP 驱动，390px 手机宽）：真实的构建产物 + 真 SDK，只把 https://api.anthropic.com/* 用假回复顶掉（直连模式，不花钱）。
 //
 //   npm run build && npx vite preview --port 4173 &      # 先起静态预览
-//   node scripts/t4-browser.mjs [http://localhost:4173] [--epub books/peter-pan.epub] [--out shots]
+//   node scripts/t4-browser.mjs [http://localhost:4173/reader/] [--epub books/peter-pan.epub] [--out shots]
 //
-// 走一遍：填口令 → 导入彼得潘 → 阅读页出现标注层（假标注）→ 点一个虚线词出卡片（截 t4-card.png）
+// 走一遍：填 key → 导入彼得潘 → 阅读页出现标注层（假标注）→ 点一个虚线词出卡片（截 t4-card.png）
 // → 卡片上点"问小克" → 抽屉弹出，上下文里带着这个词 → 发送，拦下的请求里 <recent_words> 第一位是它，流式回复显示出来（截 t4-drawer.png）
 // → 关抽屉、滚到章末 → 自动发起本章摘要请求、summaries 表里有了第 1 章。
 // 假回复：CDP 的 Fetch 域在网络层拦请求（Network.setBypassServiceWorker 绕开 service worker），标注/摘要/点词回 JSON，聊天回 SSE 流。
@@ -15,7 +15,7 @@ import path from 'node:path';
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const argv = process.argv.slice(2);
 const opt = (n, d) => (argv.includes(n) ? argv[argv.indexOf(n) + 1] : d);
-const BASE = argv[0] && !argv[0].startsWith('--') ? argv[0] : 'http://localhost:4173';
+const BASE = argv[0] && !argv[0].startsWith('--') ? argv[0] : 'http://localhost:4173/reader/';
 const EPUB = path.resolve(opt('--epub', 'books/peter-pan.epub'));
 const OUT = path.resolve(opt('--out', 'shots'));
 mkdirSync(path.join(OUT, 't4-data'), { recursive: true });
@@ -148,6 +148,12 @@ try {
     const kind = body.stream ? 'chat' : schemaKeys.includes('items') ? 'annotate' : schemaKeys.includes('summary') ? 'summary' : 'tap';
     report.requests.push({ kind, model: body.model, body: kind === 'chat' ? body : undefined });
     let status = 200;
+    // 跨域：假回复也要带 CORS 头，不然浏览器不让页面读
+    const cors = [{ name: 'access-control-allow-origin', value: '*' }];
+    if (request.method === 'OPTIONS') {
+      await send('Fetch.fulfillRequest', { requestId, responseCode: 204, responseHeaders: [...cors, { name: 'access-control-allow-headers', value: '*' }, { name: 'access-control-allow-methods', value: 'POST' }] });
+      return;
+    }
     let headers = [{ name: 'content-type', value: 'application/json' }];
     let text;
     if (kind === 'chat') {
@@ -160,21 +166,21 @@ try {
     } else if (kind === 'annotate') text = JSON.stringify(jsonMessage(body.model, annotateReply(body)));
     else if (kind === 'summary') text = JSON.stringify(jsonMessage(body.model, { summary: '（假摘要）达林家的三个孩子和保姆狗娜娜出场。' }));
     else text = JSON.stringify(jsonMessage(body.model, { lemma: 'x', level: 'B2', gloss_zh: '（假）补注', note_zh: '' }));
-    await send('Fetch.fulfillRequest', { requestId, responseCode: status, responseHeaders: headers, body: Buffer.from(text).toString('base64') });
+    await send('Fetch.fulfillRequest', { requestId, responseCode: status, responseHeaders: [...headers, ...cors], body: Buffer.from(text).toString('base64') });
   });
 
   await send('Page.enable');
   await send('Runtime.enable');
   await send('Network.enable');
   await send('Network.setBypassServiceWorker', { bypass: true });
-  await send('Fetch.enable', { patterns: [{ urlPattern: '*/api/anthropic/*', requestStage: 'Request' }] });
+  await send('Fetch.enable', { patterns: [{ urlPattern: 'https://api.anthropic.com/*', requestStage: 'Request' }] });
   await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });
 
-  // 1. 打开、填口令（直接写 IndexedDB 的 settings 行，再刷新）
+  // 1. 打开、填 key（直接写 IndexedDB 的 settings 行，再刷新）
   await send('Page.navigate', { url: BASE });
   await waitFor(`document.querySelector('header h1')?.textContent === '阅读'`);
   await sleep(300);
-  await evaluate(`new Promise((res, rej) => { const r = indexedDB.open('reader'); r.onsuccess = () => { const db = r.result; const tx = db.transaction('settings', 'readwrite'); tx.objectStore('settings').put({ key: 'app', appToken: 'mock-token', level: 'B1', noSpoilers: true, models: {} }); tx.oncomplete = () => { db.close(); res(true); }; tx.onerror = () => rej(tx.error); }; r.onerror = () => rej(r.error); })`);
+  await evaluate(`new Promise((res, rej) => { const r = indexedDB.open('reader'); r.onsuccess = () => { const db = r.result; const tx = db.transaction('settings', 'readwrite'); tx.objectStore('settings').put({ key: 'app', apiKey: 'mock-key-not-real', level: 'B1', noSpoilers: true, models: {} }); tx.oncomplete = () => { db.close(); res(true); }; tx.onerror = () => rej(tx.error); }; r.onerror = () => rej(r.error); })`);
   await send('Page.reload');
   await waitFor(`document.querySelector('header h1')?.textContent === '阅读' && !!document.querySelector('input[type=file]')`);
 

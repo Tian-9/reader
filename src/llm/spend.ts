@@ -75,7 +75,7 @@ export function summarizeSpend(rows: LedgerEntry[]): SpendSummary {
   };
 }
 
-/** 某本书的花费；bookId 不给 = 全部（含没挂书的，比如"测一下口令"）。 */
+/** 某本书的花费；bookId 不给 = 全部（含没挂书的，比如设置页"测一下"）。 */
 export async function spendFor(d: ReaderDB, bookId?: string): Promise<SpendSummary> {
   const rows = bookId ? await d.ledger.where('bookId').equals(bookId).toArray() : await d.ledger.toArray();
   return summarizeSpend(rows);

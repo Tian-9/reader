@@ -44,8 +44,8 @@
     <p class="title">还没有书</p>
     <p class="muted">导入一本 EPUB（电子书文件）开始读。书只存在这台手机里，不会上传。</p>
     <ImportButton onimported={(r) => opened(r.bookId, r)} />
-    {#if !settings.appToken}
-      <p class="muted hint">标注和聊天要先去设置里填应用口令。</p>
+    {#if !settings.apiKey.trim()}
+      <p class="muted hint">标注和聊天要先去设置里填 Anthropic API key。</p>
       <button onclick={onopensettings}>去设置</button>
     {/if}
   </section>

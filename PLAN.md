@@ -23,7 +23,7 @@
 | 4 | 她的词库 | 每个词三种状态：认识 / 在学 / 不认识。点"这个我会"后，全书同一个词立刻不再标。点任意没标的词会现场补一条注。 |
 | 5 | 小克抽屉 | 从底部拉出的聊天面板。上下文 = 屏幕上正在看的段落 + 最近点过的词 + 前情摘要。默认中文，可切英文。流式输出（字一个个蹦出来，不用等整段生成完）。 |
 | 6 | 前情摘要 | 每读完一章，用 Haiku 写一段 ≤300 字的中文摘要，存在本地。聊天和标注都会用到。 |
-| 7 | 代理 + 部署 | API key 只放在服务器端，手机上只存一个"应用口令"。 |
+| 7 | 直连 + 部署 | 设置页填自己的 Anthropic API key（只存手机本地），浏览器直连 Anthropic；静态网页放 GitHub Pages。（2026-11-04 改，原代理方案见 2.6 末尾存档） |
 | 8 | 生词导出 | 导出成和背单词页同形状的 JSON 文件。 |
 | 9 | 花费小账本 | 显示"这本书已经花了 $x.xx"。她本来就想花掉额度，看着数字涨也算个乐趣。 |
 
@@ -45,20 +45,18 @@
 ### 2.1 总体
 
 ```
-手机 PWA（Cloudflare Pages 上的静态文件）
- ├─ EPUB 解析 → 段落 → IndexedDB（书、标注、词库、聊天、账本全在本地）
+手机 PWA（GitHub Pages 上的静态文件，https://<用户>.github.io/reader/）
+ ├─ EPUB 解析 → 段落 → IndexedDB（书、标注、词库、聊天、账本、API key 全在本地）
  ├─ 阅读视图 + 标注层 + 小克抽屉
- └─ Anthropic SDK（baseURL = 同站 /api/anthropic，key = 应用口令）
-          │  只发：当前这一小段正文 + 词库样本 + 摘要
-          ▼
-Cloudflare Pages Function（/api/anthropic/*）
- ├─ 校验应用口令 → 换成真 API key
- ├─ 模型白名单、max_tokens 上限、beta 头白名单
- └─ 原样转发到 api.anthropic.com，流式透传，不记录请求正文
+ └─ Anthropic SDK（直连 api.anthropic.com，key = 她在设置页填的 API key）
+     ├─ 发出前本地过白名单：模型、max_tokens 上限、beta 头、fallbacks、fast mode、体积
+     │  只发：当前这一小段正文 + 词库样本 + 摘要
+     ▼
+api.anthropic.com（CSP 只放行这一个外部地址）
 ```
 
 **PWA**：一种"网页做的 App"，加到手机主屏幕后像原生 App 一样全屏打开，可以离线用。
-**Cloudflare Pages / Pages Functions**：Pages 托管静态网页；Functions 是挂在同一个网站下的小段服务器代码（底层就是 Cloudflare Worker）。她的 yingai.me 已经在用这套，部署命令一样。
+**GitHub Pages**：GitHub 免费托管静态网页的服务，推到 main 分支后由 GitHub Actions（GitHub 自带的自动构建）构建并发布。没有服务器代码，网站本身只是一堆文件。
 
 ### 2.2 前端：Vite + TypeScript + Svelte 5
 
@@ -174,7 +172,26 @@ ledger      { ts, purpose: 'annotate'|'tap'|'summary'|'chat', model, input, outp
 - 启动时调用 `navigator.storage.persist()`，向浏览器申请"别自动清掉我的数据"。**一定要加到主屏幕再用。**
 - 设置页提供"导出/导入词库 JSON"。
 
-### 2.6 代理层（API key 不进前端）
+### 2.6 直连模式（2026-11-04 改；代理方案存档在本节末尾）
+
+她定的：不要代理、不要托管后端，照 pocketverse 的做法——**设置页本地填 key，浏览器直连 Anthropic**。只她自己用。
+
+```ts
+new Anthropic({
+  apiKey,                       // 她在设置页填的 Anthropic API key
+  baseURL: 'https://api.anthropic.com',
+  dangerouslyAllowBrowser: true, // SDK 默认不许在浏览器里用 key，这里明确放开
+  defaultHeaders: { 'anthropic-dangerous-direct-browser-access': 'true' }, // 带这个头 Anthropic 才回 CORS 头（浏览器跨域许可）
+  fetch: guardedFetch,          // 发出前过白名单
+})
+```
+
+1. **key 存哪**：和 pocketverse 一样存在 IndexedDB（Dexie `settings` 表的 `apiKey` 字段），只在这台手机里。备份文件不带它，导入备份时保留本机的。设置页是密码框，有"显示"按钮。
+2. **白名单还在，只是挪到了浏览器里**：原代理的第 2、3 条（只开 `POST /v1/messages`、模型白名单、`max_tokens ≤ 8000`、beta 头白名单、`fallbacks` 只许 `"default"`、不许 fast mode、请求体 ≤ 256KB）现在由 `src/llm/roles.ts` 的 `checkRequest` 把关，`client.ts` 的 `guardedFetch` 在每个请求发出前调它，不过的请求根本不出浏览器（本地回一个 400）。它防的是自己代码写错（比如误配成贵模型），不是防人——key 在她手里，她想怎么调都行。
+3. **"测一下"**：设置页直连发一句最短的 Haiku 请求（< $0.0001），能分清"key 不对（401）""没权限（403）""断网"。
+4. **风险和兜底**：key 存在手机浏览器里，谁拿到她解锁的手机或者页面被注入脚本就能读到。兜底：CSP 只放行 api.anthropic.com、不引任何第三方脚本；在 Anthropic 控制台给这个 key 所在 workspace 设月度花费上限，丢了也有上限。只她自己用，这个取舍可以接受；以后要给别人用，再把 `legacy/` 的代理捡回来。
+
+#### 存档：原代理方案（2026-11-04 前的 2.6，代码在 `legacy/`）
 
 前端照常用官方 `@anthropic-ai/sdk`，只是把地址指到自家网站上：
 ```ts
@@ -191,7 +208,18 @@ new Anthropic({ baseURL: `${location.origin}/api/anthropic`, apiKey: appToken, d
 
 **为什么不用 Cloudflare Access 挡在整个网站前面**：PWA 在主屏幕全屏模式下走 Access 的登录跳转很容易出问题。应用口令只需要在设置里输入一次，已经够用。
 
-### 2.7 部署
+### 2.7 部署：GitHub Pages
+
+- 公开仓库 `reader`，网址 `https://<用户>.github.io/reader/`（照 pocketverse：`https://tian-9.github.io/pocketverse/`）。
+- **子路径**：vite `base: '/reader/'`，PWA manifest 的 `scope` / `start_url` / `id` 都是 `/reader/`，service worker 注册在 `/reader/sw.js`、管 `/reader/` 下面。换仓库名要改 `vite.config.ts` 的 `BASE`。
+- **部署**：`.github/workflows/pages.yml`，推到 main → `npm ci` → `npm run lint` → `npm run build` → `upload-pages-artifact` → `deploy-pages`（和 pocketverse 同一套）。仓库 Settings → Pages → Source 选 "GitHub Actions"。
+- **CSP**：GitHub Pages 不支持自定义响应头（Cloudflare 的 `_headers` 不认），改成 `index.html` 里的 `<meta http-equiv="Content-Security-Policy">`，构建时由 vite 插件注入（dev 下不注入，不然热更新的 websocket 被拦）：
+  `default-src 'self'; connect-src 'self' https://api.anthropic.com; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self'`
+  meta 版 CSP 不支持 `frame-ancestors`，nosniff / no-referrer 响应头也设不了（no-referrer 改用 `<meta name="referrer">`）。
+- 公开仓库、公开网址，所以加 `<meta name="robots" content="noindex, nofollow">`，不让搜索引擎收录。
+- 不用任何 CDN 字体、统计脚本或第三方 SDK。
+
+#### 存档：原部署方案（Cloudflare Pages）
 
 - Cloudflare Pages 新建项目 `reader`，构建产物是 `dist/`，Functions 放在 `functions/api/anthropic/[[path]].ts`。
 - 部署命令照 yingai 的做法：`npm run build && ~/node_modules/.bin/wrangler pages deploy dist --project-name reader --branch main`
@@ -325,9 +353,9 @@ new Anthropic({ baseURL: `${location.origin}/api/anthropic`, apiKey: appToken, d
 | 红线 | 落实手段 | 谁来验收 |
 |---|---|---|
 | AI 输出不含原文整句 | ① 两个 prompt 都写明"最多 5 个连续英文词"。② 客户端统一过一道**输出守卫**：标注的 quote 超过 5 个词 → 丢弃；任何文本字段（gloss/note/聊天回复）和当前段落有 ≥8 个词连续重合 → 把这段替换成"（原文略）"。③ 每次触发守卫都记一笔，用来观察 prompt 好不好使。 | T3 单测 + T4 单测 |
-| 前端不把书传给任何第三方 | ① CSP `connect-src 'self'`，浏览器在物理上就连不了别的域名。② 不引入任何第三方脚本、字体、统计。③ 唯一的出口是自家代理 → Anthropic，每次只发当前一小段（≤900 词）。④ 代理不记录请求正文，也不把正文写进 KV/D1。 | T1 验收（curl 看响应头）+ 代码审查 |
+| 前端不把书传给任何第三方 | ① CSP（`index.html` 的 meta）`connect-src 'self' https://api.anthropic.com`，浏览器在物理上只能连 Anthropic。② 不引入任何第三方脚本、字体、统计。③ 唯一的出口是直连 Anthropic，每次只发当前一小段（≤900 词）。（原代理方案还有一条"代理不记录正文"，直连后没有中间人了。） | 直连验收（headless 记录所有外连域名 + CSP 违规）+ 代码审查 |
 | 书只存本地 | ① EPUB 通过文件选择器导入，解析后存在手机的 IndexedDB 里。② `books/` 加进 `.gitignore`。③ 构建脚本最后检查 `dist/` 里不能有 `.epub`，有就让构建失败。④ service worker 不缓存书。⑤ 测试夹具只用自己编的段落，不用 HP 原文（公版书可以）。 | T1 + T2 |
-| 附带风险 | 正版 HP 电子书通常带购买者水印（文件里写着她的名字或订单号），一旦部署到公开网站，等于把她的书连同她的身份挂到网上。所以第 ③ 条必须做。GitHub 仓库设为私有。 | T1 |
+| 附带风险 | 正版 HP 电子书通常带购买者水印（文件里写着她的名字或订单号），一旦部署到公开网站，等于把她的书连同她的身份挂到网上。所以第 ③ 条必须做。（原定仓库私有；2026-11-04 她同意公开仓库——书和 `shots/` 都在 .gitignore 里、构建会拦 dist/ 里的 epub，公开的只有代码。） | T1 |
 | 导出的生词 | 只导出词、中文释义和中文语境说明（context_zh），不带英文原句。 | T5 |
 
 ---
@@ -337,6 +365,7 @@ new Anthropic({ baseURL: `${location.origin}/api/anthropic`, apiKey: appToken, d
 依赖关系：**T1 → (T2 ∥ T3) → T4 → T5**。T2 和 T3 共用 T1 里定好的 `Para`/`Chapter` 接口；T3 用自编夹具段落开发，不需要等 T2 完成。
 
 ### T1 · 骨架 + 代理 + 部署（约半天）
+（2026-11-04 改直连后，下面跟代理、Cloudflare、`_headers` 有关的几条作废，现行做法见 2.6 / 2.7。）
 内容：Vite + TS + Svelte 5 + Dexie + vite-plugin-pwa 空壳；`src/types.ts`（Para、Chapter、Annotation、Word）；`llm/roles.ts`；设置页输入应用口令；`functions/api/anthropic/[[path]].ts`；`_headers` 里的 CSP；`.gitignore`；构建后的 epub 检查；`CLAUDE.md`（写清目录结构和坑）；部署到 Pages。
 验收：
 - 手机打开 Pages 地址能加到主屏幕，断网后能打开空壳。
@@ -415,7 +444,7 @@ new Anthropic({ baseURL: `${location.origin}/api/anthropic`, apiKey: appToken, d
 1. 手机：**安卓**（她 Mac + 安卓）。
 2. 她熟 HP 中文版 → **防剧透默认关**，做成设置开关；同人文/没读过的书再打开。
 3. 水平自评：**B1** 起步，词库自动微调。
-4. 仓库：**私有**。
-5. 地址：先用 `reader.pages.dev`，以后要挂域名再说。
+4. 仓库：~~私有~~ → **公开**（2026-11-04 她同意；书不入仓的保障见第 4 节）。
+5. 地址：~~`reader.pages.dev`~~ → **`https://<用户>.github.io/reader/`**（2026-11-04 改 GitHub Pages）。
 6. 第二内容源：**AO3 同人文**（站内自带 Download → EPUB），和 HP 同等优先；AO3 的 EPUB 结构和 Gutenberg 不同，T2 要拿一篇验过。
-7. 两步必须她自己动手：① `wrangler pages secret put ANTHROPIC_API_KEY`（密钥不经小克的手）② 第一次部署的授权（auto 模式分类器拦生产部署）。
+7. ~~两步必须她自己动手：① `wrangler pages secret put ANTHROPIC_API_KEY` ② 第一次部署的授权~~ → 直连后：key 她自己在手机设置页填（不经任何服务器）；建公开仓 + push 她点头。
