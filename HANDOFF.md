@@ -112,9 +112,12 @@ T1 骨架/代理、T2 导入+阅读、T3 标注+词库、T4 小克抽屉+前情�
 
 **本地 headless 实测怎么跑**：`npm run build && npx vite preview --port 4173`，脚本在剧组 scratchpad（puppeteer-core + 本机 Chrome，没进项目依赖）。要点：Aa/目录面板是底部弹层，点遮罩要点上方空白处（点中心会点进目录）；断网测试要先等 `navigator.serviceWorker.ready` 再刷新一次让 SW 接管。
 
-### T3（标注管线 + 词库）—— 2026-11-04 代码完成；真跑部分待 key，未部署
+### T3（标注管线 + 词库）—— 2026-11-04 完成（真跑已补），未部署
 
-**真跑没做**：本机 shell、`~/.zshrc`、`~/.zprofile` 里都没有 `ANTHROPIC_API_KEY`，按规矩跳过。脚本已备好，并用假模型（`--mock`）把整条链路跑通过一遍（第 1 章切组 → 标注 → "我会" → 后续请求带 `<known>` → 回看 0 调用 → Sonnet 对照 → 静态 HTML → 390px 截图）。有 key 后一条命令：
+**真跑（2026-11-04 补跑，去人设后的 prompt v2）**：第 1 章 4 组 84 条，锚定 83 条（**98.8%**），丢的 1 条是 quote 超 5 词被守卫拦；入库 quote **0 条超 5 词**；anchorFail / occFallback / 拒绝重试都是 0。"我会"（pluck）→ 全书不再显示，第 5、12 章请求的 `<known>` 里都有它。回看第 1 章 **0 次调用**。Haiku 6 组 $0.0148、Sonnet 对照 3 组 $0.088。截图 `shots/t3-ch{1,5,12}.png` + `-sonnet.png`，报告 `shots/t3-data/report.json`（`compare` 里是两边的 fun/vocab 条目原文，**好不好她看图拍板**）。
+第一次真跑撞到截断：Haiku 的 adaptive thinking 一组吃 4.3–5.6K token，原来 max_tokens 6000 不够，JSON 写到一半被切。已修（见 `c721ea2`：上限放宽 + 截断时 effort=low 重发一次），最终这趟 0 次重发。
+
+（以下是当时没 key 时的说明，留着备查）脚本已备好，并用假模型（`--mock`）把整条链路跑通过一遍（第 1 章切组 → 标注 → "我会" → 后续请求带 `<known>` → 回看 0 调用 → Sonnet 对照 → 静态 HTML → 390px 截图）。有 key 后一条命令：
 ```
 ANTHROPIC_API_KEY=… node scripts/vrun.mjs scripts/t3-real.ts      # 结果：shots/t3-ch{1,5,12}.png（+ -sonnet 对照）、shots/t3-data/report.json
 ```
@@ -127,10 +130,10 @@ ANTHROPIC_API_KEY=… node scripts/vrun.mjs scripts/t3-real.ts      # 结果：s
 | 单测（全自编段落） | 锚定：弯/直引号双向、大小写空格、首尾标点、occ 第 1/2/3 次、词边界（"art" 不进 "start"）、occ 超出退回第一次、找不到、6 词 quote；守卫：5 词放行 6 词拦、8 词重合替换"（原文略）"、7 词不拦、弯撇号大小写；分组；管线请求形状；Haiku 拒绝 → Sonnet 重试；预取 k/k+1/k+2、跨章、去重、`<already_noted>`；"我会"全书生效 + 下一次 `<known>` 含该词；阈值过滤；连点 15 次提示；点词补注。 |
 | `npm run lint` / `npm run build` | 通过（0 错 0 警告，82 个单测 + T2 的 1 个跳过） |
 | 渲染层（真 Chrome，`scripts/t3-demo`，用 T2 的 `ParaText` + `data-pid` 段落） | B1 读者 6 个生词显示 5 个（B1 的那个被阈值藏掉）、2 个页边 ※；点 sideways 开卡片并高亮；点"这个我会"→ 两处 sideways（不同段）一起消失，0 次调用；点没标的 grumbled → 1 次补注调用、多一条虚线；※ 打开"有意思"卡片；"问小克"把 `ask-xiaoke` 冒泡到 window。页面 0 报错 |
-| 真跑彼得潘第 1 章：锚定率 ≥90%、入库 quote 无 >5 词、花费 | **待 key**（脚本会算出来写进 report.json） |
+| 真跑彼得潘第 1 章：锚定率 ≥90%、入库 quote 无 >5 词、花费 | 过：98.8%（83/84），0 条 >5 词，第 1 章 4 组 $0.010 |
 | "我会"全书生效 + 下次 `<known>` 含该词（打日志） | 单测 + demo 已验；真跑那一步脚本也会记 `knownLog` |
 | 回看已标章节 0 次调用 | 单测已验（同一标注器、新开标注器都是 0）；真跑脚本会再数一遍 |
-| 第 1/5/12 章各一组截图 + Haiku/Sonnet fun 并排 | **待 key**（脚本会出 `shots/t3-ch{1,5,12}.png` 和 `-sonnet.png`，fun 条目在 report.json 的 `compare` 里） |
+| 第 1/5/12 章各一组截图 + Haiku/Sonnet fun 并排 | 已出：`shots/t3-ch{1,5,12}.png`、`shots/t3-ch{1,5,12}-sonnet.png`；fun 条数 Haiku 4/5/4、Sonnet 4/6/1，vocab 条数 Haiku 17/12/12、Sonnet 22/16/19。**待她看图拍板** |
 
 **文件**
 - `src/annotate/`：`text.ts`（规范化 + 位置映射、词数）、`anchor.ts`（锚定）、`guard.ts`（输出守卫）、`chunker.ts`（分组 + 存 chunks）、`profile.ts`（拼 user 消息：known 60 / unknown 40 / 前情 / already_noted / passage）、`pipeline.ts`（调用 + 拒绝重试 + 锚定 + 守卫 + 入库 + 记账）、`queue.ts`（预取队列 `Annotator`、浏览器用的 `getAnnotator()`）、`tap.ts`（点词补注）、`words.ts`（词库三态、阈值提示）、`visible.ts`（显示过滤）。
@@ -164,9 +167,11 @@ ANTHROPIC_API_KEY=… node scripts/vrun.mjs scripts/t3-real.ts      # 结果：s
 8. **点词补注**的 system 不到 512 token，达不到缓存下限，所以不打缓存断点。补注结果存成 `chunkId='tap'` 的 vocab 标注 + 词库记 unknown/tapped。
 9. 真跑用的是我自己的临时抽段脚本（正则取 `<p>`），不是 T2 的解析器；第 1 章我这边 52 段，和 T2 的切法可能有一两段出入（T2 会剔掉章首标题），不影响标注验收。
 
-### T4（小克抽屉 + 前情摘要 + 接线）—— 2026-11-04 代码完成；真跑部分待 key，未部署
+### T4（小克抽屉 + 前情摘要 + 接线）—— 2026-11-04 完成（真跑已补），未部署
 
-**真跑没做**：shell 里没有 `ANTHROPIC_API_KEY`，`~/.config/reader/.env` 不存在，按规矩跳过。有 key 后（放 shell 或 `~/.config/reader/.env` 里写 `ANTHROPIC_API_KEY=…`）：
+**真跑（2026-11-04 补跑）**：9/9 过，$0.045（5 轮 Sonnet 聊天 $0.036 + 2 章摘要）。回答原文在 `shots/t4-data/report.json` 的 `turns`，防剧透/英文模式/念原文的表现**她看原话判断**。
+
+（以下是当时没 key 时的说明，留着备查）有 key 后（放 shell 或 `~/.config/reader/.env` 里写 `ANTHROPIC_API_KEY=…`）：
 ```
 bash scripts/real-all.sh          # 顺序跑 t3-real（≤$1.5）+ t4-real（≤$0.5），合计 ≤ $2；不打印 key
 ```
@@ -202,11 +207,11 @@ bash scripts/real-all.sh          # 顺序跑 t3-real（≤$1.5）+ t4-real（�
 | 摘要触发点单测（`test/summary.test.ts`） | 最后一段可见才触发；已有/正在生成/没口令/章号无效不触发；滚动摘要每次 ≤1000 词、带上一版；300 字截断；8 词重合换"（原文略）"并记守卫；同章并发只跑一次 |
 | 聊天单测（`test/chat.test.ts`） | 上下文顺序和 3 个断点；第二轮请求 = 第一轮请求 + 助手原样回复（去掉 cache_control 后逐字节相同）；thinking 块和签名原样回传；切英文 system 不变、中途 system 紧跟 user、断点不在 system 消息上、不重复追加、切回中文；"念原文"显示被守卫、历史不改、记守卫；refusal/429 回滚；换 Opus；recent_words 排序；续会话/换章 |
 | 假跑 `t4-real.ts --mock`（缓存模拟器：按断点前缀逐字节比对） | 9/9 过：第二轮 cache_read 689→1010→1342 逐轮涨（前缀没被改过）；切英文后 cache_read 仍 >0；念原文被守卫换成"（原文略）"；防剧透开/关两种回答走对了分支（假模型，只验链路） |
-| **同一会话第二轮 `cache_read_input_tokens > 0`（真）** | **待 key**（t4-real 第 2 步） |
-| **防剧透开/关各问一次"胡克最后怎么样"（真）** | **待 key**（第 2、5 步；关键词粗筛只是辅助，回答原文在 report.json 里，好不好她看） |
-| **英文模式回答是简单英文 + 缓存不失效（真）** | **待 key**（第 3 步） |
-| **"把这段原文念给我"被守卫拦或改成中文转述（真）** | **待 key**（第 4 步） |
-| **卡片"问小克"→ `<recent_words>` 带词（真）** | 浏览器里已验（请求体是真 SDK 发出的）；真跑第 1 步再验一次 |
+| **同一会话第二轮 `cache_read_input_tokens > 0`（真）** | 过：第一轮写缓存 1773，之后 cache_read 1773 → 2558 → 3179 逐轮涨 |
+| **防剧透开/关各问一次"胡克最后怎么样"（真）** | 过：开着时说"防剧透开着…想知道就说剧透我"，没漏结局；关着时直说被鳄鱼吃了、讲了 bad form |
+| **英文模式回答是简单英文 + 缓存不失效（真）** | 过：短句英文、难词括号带中文（barking (狂吠)）；cache_read 2558 > 0，system 一字没改 |
+| **"把这段原文念给我"被守卫拦或改成中文转述（真）** | 过：模型自己拒绝照搬、改成中文转述，显示里没有 ≥8 词原文 |
+| **卡片"问小克"→ `<recent_words>` 带词（真）** | 过（浏览器 + 真跑第 1 步都验了） |
 
 **合同改动（只加不改）**
 - `types.ts`：`ChatRecord.messages` 放宽成 `(MessageParam | BetaMessageParam)[]`（中途 `role:"system"` 只在 beta 类型里；老数据照样合法，目前没有别的读者）；`ChatRecord` 加可选 `updatedAt / chapter / model / display`；新类型 `ChatLine`。
@@ -283,10 +288,8 @@ bash scripts/real-all.sh          # 顺序跑 t3-real（≤$1.5）+ t4-real（�
 - [x] T1–T5 代码、单测、headless 验收（假 API）
 - [ ] **她**：Cloudflare Pages 建项目 `reader`、第一次部署授权（总台跑 `npm run build && ~/node_modules/.bin/wrangler pages deploy dist --project-name reader --branch main`，授权她点）
 - [ ] **她**：设两个 secret（只有她敲）：`wrangler pages secret put APP_TOKEN --project-name reader`、`wrangler pages secret put ANTHROPIC_API_KEY --project-name reader`；Anthropic 控制台给 key 所在 workspace 设月度上限
-- [ ] **她或总台**：本机放一份 key 给真跑用（shell 的 `ANTHROPIC_API_KEY`，或 `~/.config/reader/.env`），然后 `bash scripts/real-all.sh`（≤ $2）：
-  - T3：第 1 章锚定率 ≥90%、quote ≤5 词、第 1/5/12 章截图 + Sonnet 对照 → 她看图拍板 prompt
-  - T4：第二轮缓存命中、防剧透开/关、英文模式、念原文守卫、问小克带词 → 她看 `shots/t4-data/report.json` 里的回答原文
-  - 跑完把实测花费填进 PLAN 第 6 节的 T3/T4 两行
+- [x] 本机真跑（key 在 `~/.config/reader/key`，`bash scripts/real-all.sh`）：T3 锚定 98.8%、T4 9/9 过，实测花费已填进 PLAN 第 6 节。本轮合计约 $0.18（含两次撞截断的半截跑）
+- [ ] **她**：看 `shots/t3-ch{1,5,12}.png` 和 `-sonnet.png` 拍板标注 prompt / 标注要不要换 Sonnet（Haiku 全书约 $0.25，Sonnet 约 $2.9）；看 `shots/t4-data/report.json` 里小克的原话
 - [ ] 部署后线上验：设置页"测一下口令"显示"通了"；手机上导入一本、点词、问小克、读完一章看前情有没有生成（设置页花费面板下有"前情摘要已生成 N 章"）；设置页看"已申请持久存储"加到主屏幕后是不是"是"
 - [ ] 第一次导出生词交给 Claude 导进背单词页：定 HP 的词放哪个 collection / 哪一页（PLAN T5），看 context_zh 只有"第 N 章"够不够
 - [ ] 手机上加到主屏幕、断网再开（T1 遗留的手机部分）
