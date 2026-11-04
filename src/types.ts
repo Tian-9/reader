@@ -2,6 +2,7 @@
  * 共享接口（PLAN 2.3 / 2.4）。T2（EPUB 导入 + 阅读器）和 T3（标注管线 + 词库）都只认这里的形状。
  * 改字段 = 改合同：先改这里，再让两边对齐，Dexie 表结构在 src/db/db.ts。
  */
+import type { BetaMessageParam } from '@anthropic-ai/sdk/resources/beta/messages/messages';
 import type { MessageParam } from '@anthropic-ai/sdk/resources/messages';
 
 // ───────────────────────── 书与段落（T2 产出，T3 消费） ─────────────────────────
@@ -212,9 +213,29 @@ export interface ChatRecord {
   id: string;
   bookId: string;
   lang: 'zh' | 'en';
-  /** 原样存 SDK 的消息结构，回放时直接塞回 messages。存库前记得 $state.snapshot。 */
-  messages: MessageParam[];
+  /**
+   * 原样存 SDK 的消息结构，回放时直接塞回 messages。存库前记得 $state.snapshot。
+   * T4 补：放宽成也收 beta 消息（中英切换用的中途 role:"system" 消息只在 beta 类型里）。
+   * 只追加不改写：助手回复连 thinking 块原样存（改历史会让后面的 thinking 签名失效、缓存全废）。
+   */
+  messages: (MessageParam | BetaMessageParam)[];
   createdAt: number;
+  /** T4 补：最后一次说话的时间 */
+  updatedAt?: number;
+  /** T4 补：这个会话开始时读到第几章（换章后开新会话，前情摘要跟着换） */
+  chapter?: number;
+  /** T4 补：这个会话用的聊天模型（换模型缓存不通用） */
+  model?: string;
+  /** T4 补：抽屉里显示的内容（她的原话 + 过了守卫的回复）。和 messages 分开存：守卫只改显示，不改发回去的历史。 */
+  display?: ChatLine[];
+}
+
+/** T4 补：抽屉里的一行。note 是界面提示（切英文、被拒、出错），不发给模型。 */
+export interface ChatLine {
+  role: 'user' | 'assistant' | 'note';
+  text: string;
+  /** 回复被输出守卫改过（有"（原文略）"） */
+  guarded?: boolean;
 }
 
 export type Purpose = 'annotate' | 'tap' | 'summary' | 'chat';

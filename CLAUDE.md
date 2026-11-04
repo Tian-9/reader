@@ -6,22 +6,36 @@
 
 ```
 PLAN.md                         方案（架构、prompt 草案、版权红线、T1-T5 分工）
-HANDOFF.md                      进度交接
+HANDOFF.md                      进度交接（各 T 段 + 收口清单）
 books/                          测试用公版书（gitignore，不许动、不许进 dist/）
+shots/                          验收截图和真跑报告（gitignore，不入仓）
 functions/api/anthropic/[[path]].ts   Pages Function 代理：口令→真 key，白名单，流式透传
 public/_headers                 CSP 等静态响应头
 public/icon-*.png               PWA 占位图标（scripts/make-icons.mjs 生成）
-scripts/check-dist.mjs          构建前后检查 dist/ 里没有电子书
+scripts/
+  check-dist.mjs                构建前后检查 dist/ 里没有电子书
+  vrun.mjs                      用 vite 跑 TS 脚本（node scripts/vrun.mjs x.ts）
+  t3-real.ts / t4-real.ts       真跑验收（直连 Anthropic，要 ANTHROPIC_API_KEY；--mock 假跑）
+  real-all.sh                   有 key 时一条命令顺序跑 t3-real + t4-real（合计 ≤ $2）
+  t4-browser.mjs                headless Chrome 走一遍 导入→标注→点词→卡片→问小克→抽屉→章末摘要（API 用假回复）
+  t3-epub.ts / t3-shot.mjs / t3-demo/   T3 的抽段、截图、标注层 demo
 src/
-  types.ts                      共享接口：Para / Chapter / Annotation / Word / … ← T2、T3 的合同
-  db/db.ts                      Dexie 表结构 + chapterParas()
+  types.ts                      共享接口：Para / Chapter / Annotation / Word / ChatRecord … ← 各 T 的合同（只做加法）
+  db/db.ts                      Dexie 表结构 + chapterParas()（改表加新 version，只做加法）
+  epub/                         T2：parse（切章拆段）、drm、import（入库/当前书）、words（分词）、errors
+  annotate/                     T3：chunker 分组、pipeline 标注调用、anchor 锚定、guard 输出守卫、queue 预取、
+                                tap 点词补注、words 词库三态、profile 拼 user 消息、visible 阈值过滤、text
+  chat/                         T4：context（PLAN 2.9 上下文组装，纯函数）、session（一轮聊天：流式/守卫/记账/存库）、
+                                summary（章末触发 + 滚动摘要）、autosummary.svelte.ts（盯阅读状态触发摘要）
+  components/                   ReaderView（T2 阅读视图，里面挂 T3 的 AnnotationLayer）、ParaText、ImportButton、
+                                AnnotationLayer + WordCard（T3）、ChatDrawer（T4 小克抽屉）、reading.svelte.ts（阅读共享状态）
   llm/roles.ts                  按用途配模型 / effort / max_tokens（业务代码不写死模型名）
   llm/client.ts                 SDK 客户端（懒加载）、baseParams / betaParams、ping
-  llm/prompts/annotate.ts       标注 system + user 模板 + schema（PLAN 3.1 原文）
-  llm/prompts/chat.ts           小克 system（PLAN 3.2 原文）
+  llm/pricing.ts, ledger.ts     单价表、花费账本
+  llm/prompts/                  annotate（标注）、tap（点词）、chat（小克 + 中英切换指令）、summary（章节摘要）
   settings.svelte.ts            设置 $state + 读写
   pwa.svelte.ts                 service worker 注册 + "有新版本"横条
-  App.svelte, pages/            界面（中文，手机优先）
+  App.svelte, pages/            界面（中文，手机优先）。ReaderPage 挂 ReaderView + ChatDrawer + 自动摘要
 test/                           单测（vitest + fake-indexeddb）。不能放进 functions/，见下面的坑
 ```
 
@@ -51,6 +65,9 @@ test/                           单测（vitest + fake-indexeddb）。不能放�
 - **CSP 是 `connect-src 'self'`**，不许加第三方脚本、字体、统计；Chrome headless 下 `--dump-dom` 一次性模式里 IndexedDB 会卡住，测页面用 CDP 正常会话（HANDOFF 里有说明）。
 - **书不进仓库、不进 dist/**：.gitignore 有 `books/` 和 `*.epub`。测试夹具里的 EPUB 用代码现场拼（fflate `zipSync`），别提交 .epub 文件；夹具文本只用自编段落或公版书，不用 HP 原文。
 - 开发机是 macOS（文件系统不区分大小写）：两个文件名不能只差大小写。
+- **聊天历史只追加不改写。** 助手回复连 thinking 块原样存、原样发回；输出守卫只改显示（ChatRecord.display），不改 messages。改历史 = 缓存从那里断 + Sonnet/Opus 5.5 的 thinking 签名失效（新账号直接 400）。中途 `role: "system"` 消息必须紧跟在 user 后面，不能放 messages[0]。
+- **页边 ※ 别伸出屏幕。** ReaderView 的 article 右边留了 14px；伸出去手机上整页会左右晃，headless 里还会把点击坐标带偏。
+- **$state.raw 里的数组被就地 push 后，重新赋值外层对象时数组也要换新**（`{...s, display: [...s.display]}`），不然 $derived 看不到变化。
 
 ## 文案
 

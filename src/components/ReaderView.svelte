@@ -10,6 +10,7 @@
   import { wordAt } from '../epub/words';
   import { saveSettings, settings } from '../settings.svelte';
   import { parseParaId, type Book, type ChapterRow, type ParaRow } from '../types';
+  import AnnotationLayer from './AnnotationLayer.svelte';
   import ImportButton from './ImportButton.svelte';
   import ParaText from './ParaText.svelte';
   import { reading, WORD_TAP_EVENT, type WordTap } from './reading.svelte';
@@ -56,6 +57,7 @@
   const size = $derived(settings.readSize ?? 19);
   const leading = $derived(settings.readLeading ?? 1.7);
   const chapter = $derived(chapters.find((c) => c.n === chapterN));
+  const chapterParaIds = $derived(paras.map((p) => p.id));
 
   $effect(() => {
     shownNotice = notice;
@@ -300,6 +302,8 @@
         </p>
         {#if afterPara}{@render afterPara(p)}{/if}
       {/each}
+      <!-- T3 标注层（T4 接线）：生词虚线用 Highlight API 画在上面的文字上，※ 画在 article 内的绝对定位浮层里 -->
+      <AnnotationLayer {bookId} root={article} paraIds={chapterParaIds} currentParaId={reading.topParaId} />
     </article>
     <nav class="chapnav">
       {#if prev}<button onclick={() => openChapter(prev.n)}>← 上一章</button>{:else}<span></span>{/if}
@@ -400,6 +404,10 @@
     font-size: 13px;
   }
   article {
+    /* 标注层的 ※ 浮层以 article 为定位基准；右边留 14px 给页边 ※（22px 宽，一半伸进 main 的边距），
+       不留的话 ※ 会伸出屏幕，手机上整页能左右晃 */
+    position: relative;
+    padding-right: 14px;
     font-family: var(--read-font);
     font-size: var(--read-size);
     line-height: var(--read-leading);

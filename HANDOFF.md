@@ -1,10 +1,13 @@
 # HANDOFF
 
-## 当前状态（2026-11-04，T1 完成，未部署）
+## 当前状态（2026-11-04，T1–T4 代码完成，未部署）
 
-骨架、代理、可部署空壳都在本地跑通了。没部署、没设 secret、没推 GitHub（仓库只在本地 git）。
+T1 骨架/代理、T2 导入+阅读、T3 标注+词库、T4 小克抽屉+前情摘要都在本地跑通，导入→阅读→标注→点词→卡片→问小克→抽屉这条链在 App 里连起来了。
+**还差什么才能给她用，看最后一节"收口清单"。** 没部署、没设 secret、没推 GitHub（仓库只在本地 git）。所有需要真 key 的验收都"待 key"，脚本已备好（`bash scripts/real-all.sh` 一条命令）。
 
-### T1 验收结果
+### T1（骨架 + 代理）
+
+#### T1 验收结果
 
 | 项 | 结果 |
 |---|---|
@@ -22,7 +25,7 @@
 | 桌面 Chrome（headless）| 外壳渲染正常，0 控制台报错、0 CSP 违规；设置能保存；断网刷新仍能打开；部署新版后出"有新版本"横条，点了切新版 |
 | **200 分支（真 key + Haiku 一句话 → 200 流式）** | **没验**：要真 key，等她设好 secret 后验（见下面"待她做"） |
 
-### 和 PLAN 不一样的地方（都是补，不是改方向）
+#### T1 和 PLAN 不一样的地方（都是补，不是改方向）
 
 1. **代理也认 `Authorization: Bearer` 口令。** PLAN 2.6 写的是 `x-api-key`，但 `@anthropic-ai/sdk` 1.x（2026-10-21 发布的新大版本）把 apiKey 一律放在 `Authorization: Bearer` 里发。不补的话前端所有请求都会 401。两个头都不转发上游。
 2. **代理多拦了三样：** `fallbacks` 只放行 `"default"`（数组形式能指定任意模型，等于绕过白名单）；`speed: "fast"`（贵一倍）；请求体超过 256KB → 413。请求头只转发 content-type / anthropic-version / accept / anthropic-beta，其余（cookie、浏览器直连标记、SDK 遥测头）全丢。
@@ -49,7 +52,7 @@
 4. 建议在 Anthropic 控制台给这个 key 所在的 workspace 设月度花费上限（PLAN 2.6）。
 5. 手机上加到主屏幕、断网再开一次（PLAN T1 验收的手机部分，桌面 Chrome 已模拟过）。
 
-## T2 / T3 从哪接
+## 各 T 的交接（T2 / T3 / T4）
 
 **共享接口全在 `src/types.ts`，Dexie 表在 `src/db/db.ts`。** 两边并行时只认这两个文件；要改字段先改这里，再通知另一边。
 
@@ -137,7 +140,7 @@ ANTHROPIC_API_KEY=… node scripts/vrun.mjs scripts/t3-real.ts      # 结果：s
 - `types.ts`：`ChunkRow.stats?: ChunkStats`（每组的锚定/守卫统计）；`Word.level?`（挑 known 样本、判断同级连点）；新类型 `GuardEvent`、`WordTapDetail`（= T2 的 `WordTap`）、`AskXiaokeDetail`。
 - `db.ts`：`version(2)` 加表 `guardEvents`（`++id, ts, bookId, kind`），v1 没动。守卫/锚定失败/拒绝每次记一行，只记"发生了什么"不存原文；T4 的聊天守卫也往这里记（purpose='chat'）。
 
-**还没接进 App（T3 不改 T2 的文件）**：`AnnotationLayer` 已经按 T2 的接口写好，谁接手 ReaderView 时加一行就亮：
+**接进 App**（T3 当时不改 T2 的文件，T4 已按下面这行接上）：`AnnotationLayer` 已经按 T2 的接口写好，谁接手 ReaderView 时加一行就亮：
 ```svelte
 <!-- ReaderView 里，包住所有 <p class="para" data-pid> 的那个元素内部 -->
 <AnnotationLayer {bookId} root={那个元素} paraIds={本章段落 id 数组} currentParaId={reading.topParaId} />
@@ -158,8 +161,68 @@ ANTHROPIC_API_KEY=… node scripts/vrun.mjs scripts/t3-real.ts      # 结果：s
 8. **点词补注**的 system 不到 512 token，达不到缓存下限，所以不打缓存断点。补注结果存成 `chunkId='tap'` 的 vocab 标注 + 词库记 unknown/tapped。
 9. 真跑用的是我自己的临时抽段脚本（正则取 `<p>`），不是 T2 的解析器；第 1 章我这边 52 段，和 T2 的切法可能有一两段出入（T2 会剔掉章首标题），不影响标注验收。
 
-### T4（小克抽屉）先知道的
-- `src/llm/prompts/chat.ts` 有 `CHAT_SYSTEM` 和英文模式的中途 system 消息 `CHAT_EN_MODE`。聊天走 `c.beta.messages.stream({ ...betaParams('chat', settings), ... })`，已经带好服务器端 fallback。
+### T4（小克抽屉 + 前情摘要 + 接线）—— 2026-11-04 代码完成；真跑部分待 key，未部署
+
+**真跑没做**：shell 里没有 `ANTHROPIC_API_KEY`，`~/.config/reader/.env` 不存在，按规矩跳过。有 key 后（放 shell 或 `~/.config/reader/.env` 里写 `ANTHROPIC_API_KEY=…`）：
+```
+bash scripts/real-all.sh          # 顺序跑 t3-real（≤$1.5）+ t4-real（≤$0.5），合计 ≤ $2；不打印 key
+```
+单跑 T4：`node scripts/vrun.mjs scripts/t4-real.ts`，报告 `shots/t4-data/report.json`（`checks` 每条过/不过 + 每轮的原话回复、usage、花费）。预估 T4 这一趟 < $0.2（Sonnet 5 轮 + Haiku 摘要 8 次）。
+
+**A. 接线**
+- `ReaderView` 的 `<article>` 里挂了 `<AnnotationLayer {bookId} root={article} paraIds currentParaId={reading.topParaId} />`（就是 T3 说的那一行）。article 加了 `position: relative`（※ 浮层的定位基准）和 `padding-right: 14px`（※ 不伸出屏幕，见下面"和 PLAN 不一样"第 4 条）。
+- `ReaderPage` 有书时挂 `<ChatDrawer {bookId} />` 和 `useAutoSummary()`（读完一章自动摘要）。
+- `ask-xiaoke` 事件：抽屉在 window 上听，打开抽屉、把那个词放 `<recent_words>` 第一位（标"她刚问的"）、输入框预填"「词」在这儿是什么意思？"（"有意思"条目是"这里有什么梗？"），她可以改了再发。
+
+**B. 小克抽屉**
+- 文件：`src/chat/context.ts`（上下文组装，纯函数）、`src/chat/session.ts`（一轮：拼请求 → 流式 → 守卫 → 追加历史 → 记账 → 存库；还有取屏幕段落/最近的词/续会话）、`src/chat/summary.ts`（章末触发 + 滚动摘要）、`src/chat/autosummary.svelte.ts`（盯 reading 状态触发）、`src/components/ChatDrawer.svelte`、`src/llm/prompts/summary.ts`。
+- 上下文顺序（PLAN 2.9）：system = `CHAT_SYSTEM`（断点 1）→ 会话第一条 user 的第一块 = `<book>` + `<story_so_far>`（断点 2，会话开始时定下，整个会话不变）→ 历史 → 本轮 user = `<reading>`（第几章、防剧透开/关）+ `<screen>`（屏幕段落，≤600 词，问的词所在段一定带）+ `<recent_words>`（≤8 个）+ 问题，最后一块打断点 3。易变的东西只在本轮 user 里，发出去就成了历史、不再改。
+- **历史只追加不改写**：助手回复连 thinking 块（含签名）原样存、原样发回。输出守卫（和本章原文 ≥8 词连续重合 → "（原文略）"）只改显示，存在 `ChatRecord.display`；发回 API 的 `messages` 不动。理由：改历史 = 缓存从那里断，而且 Sonnet/Opus 5.5 的 thinking 签名绑定前缀，改了就失效（2026-08-31 以后的新账号直接 400）。原文只会回到 Anthropic，不外流，不违反红线。
+- 中英切换：抽屉上"中/EN"。不改 system，下一句发出时紧跟在那条 user 后面追加 `{role:'system', content: CHAT_EN_MODE}`（切回中文是新加的 `CHAT_ZH_MODE`）。API 要求中途 system 消息跟在 user 后面、不能是 messages[0]，所以是"下一句起"生效，抽屉上有提示。
+- 防剧透：抽屉上的开关和设置页是同一个（`settings.noSpoilers`），每轮写进 `<reading>`。前情摘要只取当前章之前的。
+- 聊天模型：设置页切（T1 已有），每轮现读；换模型那一轮缓存重写（缓存按模型分）。抽屉标题旁显示当前模型名。
+- 会话：同一本书、同一章、6 小时内打开抽屉接着上次聊；换章开新会话（前情跟着换）。"新话题"按钮手动开新的。请求体超过 180KB（代理卡 256KB）自动开新话题并提示。
+- 出错：被拒（refusal）/网络错/429 都回滚本轮（历史里不留半截），中文提示，问题放回输入框。被拒那次照样记账、记一笔守卫（kind=refusal）。
+- 每条回复下面一行小字：模型 · 缓存读 · 新输入 · 输出 · 本轮美元。看缓存命中、看花费都靠它。
+
+**前情摘要**
+- 触发点：本章最后一段出现在屏幕上（`chapterFinished` / `summaryToTrigger`，有单测）。"下一章"按钮就在最后一段后面，正常翻章必经；从目录跳过去、没看到最后一段的章不生成（没读的不该进前情）。没口令不触发。失败了下次读到章末再试。
+- 生成：Haiku，按 T3 的分组**滚动摘要**，每次发"已有摘要 + 下一组原文（≤900 词左右）+ 前几章摘要（认人名用，≤400 字）"，回来更新后的摘要；≤300 字截断；过守卫；存 summaries。用 structured outputs `{summary}` 是为了复用 T3 的 `callStructured`（Haiku 被拒 → Sonnet 重试一次 + 记账，purpose=summary）。
+- 标注那边 `<story_so_far>` 本来就读 summaries 表，所以摘要一有，后面章节的标注也有前情了。
+
+**验收结果**
+
+| 项 | 结果 |
+|---|---|
+| `npm run lint` / `npm run build` | 通过（0 错 0 警告；103 个单测 + 1 个跳过，T4 新增 21 个） |
+| 浏览器 headless（`scripts/t4-browser.mjs`，390px，真构建产物 + 真 SDK，只有 `/api/anthropic/*` 用 CDP 拦下回假数据） | 10/10 过：导入彼得潘 52 段 → 标注层出现（假标注：20 处生词虚线、3 个 ※）→ 点 delightful 出卡片 → 点"问小克"抽屉弹出、上下文带 delightful、输入框预填 → 发送：拦下的请求 `<recent_words>` 第一位是 delightful、system 只有人格、断点在前情块和最后一块、`fallbacks:"default"` → 流式回复显示 → 账本有 purpose=chat 一行 → 关抽屉滚到章末 → 自动发了 4 次摘要请求、summaries 有第 1 章 → 页面 0 报错。截图 `shots/t4-card.png`、`shots/t4-drawer.png`，明细 `shots/t4-data/browser.json` |
+| 摘要触发点单测（`test/summary.test.ts`） | 最后一段可见才触发；已有/正在生成/没口令/章号无效不触发；滚动摘要每次 ≤1000 词、带上一版；300 字截断；8 词重合换"（原文略）"并记守卫；同章并发只跑一次 |
+| 聊天单测（`test/chat.test.ts`） | 上下文顺序和 3 个断点；第二轮请求 = 第一轮请求 + 助手原样回复（去掉 cache_control 后逐字节相同）；thinking 块和签名原样回传；切英文 system 不变、中途 system 紧跟 user、断点不在 system 消息上、不重复追加、切回中文；"念原文"显示被守卫、历史不改、记守卫；refusal/429 回滚；换 Opus；recent_words 排序；续会话/换章 |
+| 假跑 `t4-real.ts --mock`（缓存模拟器：按断点前缀逐字节比对） | 9/9 过：第二轮 cache_read 689→1010→1342 逐轮涨（前缀没被改过）；切英文后 cache_read 仍 >0；念原文被守卫换成"（原文略）"；防剧透开/关两种回答走对了分支（假模型，只验链路） |
+| **同一会话第二轮 `cache_read_input_tokens > 0`（真）** | **待 key**（t4-real 第 2 步） |
+| **防剧透开/关各问一次"胡克最后怎么样"（真）** | **待 key**（第 2、5 步；关键词粗筛只是辅助，回答原文在 report.json 里，好不好她看） |
+| **英文模式回答是简单英文 + 缓存不失效（真）** | **待 key**（第 3 步） |
+| **"把这段原文念给我"被守卫拦或改成中文转述（真）** | **待 key**（第 4 步） |
+| **卡片"问小克"→ `<recent_words>` 带词（真）** | 浏览器里已验（请求体是真 SDK 发出的）；真跑第 1 步再验一次 |
+
+**合同改动（只加不改）**
+- `types.ts`：`ChatRecord.messages` 放宽成 `(MessageParam | BetaMessageParam)[]`（中途 `role:"system"` 只在 beta 类型里；老数据照样合法，目前没有别的读者）；`ChatRecord` 加可选 `updatedAt / chapter / model / display`；新类型 `ChatLine`。
+- `db.ts` 没动（chats、summaries 表 T1 就建好了）。
+- `annotate/profile.ts` 的 `storySoFar` 加了可选 `maxChars`（默认还是 600，聊天用 1500）。`llm/prompts/chat.ts` 加了 `CHAT_ZH_MODE`。
+
+**和 PLAN 不一样 / PLAN 没写死的地方**
+1. **摘要不是一次发整章**（PLAN 第 6 节按"7K 入"估算），而是按组滚动，守住第 4 节"每次只发 ≤900 词"。花费同一量级（一章 4–8 次 Haiku，约 $0.001）。PLAN 第 6 节已加注。
+2. **守卫只改显示不改历史**（见上）。PLAN 第 4 节说"把这段替换成（原文略）"，她看到的确实被换了；发回模型的那份不换，是为了缓存和 thinking 签名。
+3. **英文模式"下一句起"生效**：中途 system 消息只能跟在 user 后面，所以切换时不立刻发东西，下一次发问时一起带上。
+4. **※ 原来会伸出屏幕 8px**（390px 宽时整页变 398px，手机上能左右晃；headless 里还把点击坐标带偏了）。在 ReaderView 的 article 右边留了 14px，※ 落在边距里。T3 的定位逻辑没改。
+5. 聊天的前情上限 1500 字（标注那边 600），聊天更需要背景，Sonnet 读得起。
+6. 右下角"小克"按钮在 T3"标注中…"小牌子上面一点（bottom 52px），两个不打架。
+
+**要她看的**：`shots/t4-card.png`、`shots/t4-drawer.png`（假标注、假回复，只看排版和交互）。抽屉高度 78%、气泡样式、按钮位置都是先拍的，好不好她说了算。
+
+**留意（真跑时看一眼）**
+- 服务器端 fallback 万一把聊天转到不支持中途 system 消息的模型，切英文那轮可能 400。真跑第 3 步会暴露；真出了就在 fallback 时去掉 system 消息改成 user 里的提示。
+- Sonnet 5.5 的 `CHAT_SYSTEM` 估计 ~700 token，过 512 的缓存下限；真跑看第一轮 `cache_creation_input_tokens` 是否 >0 就知道。
 
 ## 本地测页面的小技巧
 
@@ -171,3 +234,21 @@ ANTHROPIC_API_KEY=… node scripts/vrun.mjs scripts/t3-real.ts      # 结果：s
 - `npm audit` 报 11 个 low/moderate，全在构建工具链（workbox-build、glob、ejs 等），运行时依赖 0 个。等 vite-plugin-pwa 升级再说。
 - 图标是脚本画的占位（米色底 + 一本摊开的书），好不好看她说了算，替换 `public/icon-192.png` / `icon-512.png` 即可。
 - TypeScript 用 6.0.3 不是最新的 7.0：svelte-check 只支持到 TS 6。
+
+## 收口清单（还差什么才能部署给她用）
+
+按顺序，打勾的是剧组已做完的：
+
+- [x] T1–T4 代码、单测、headless 验收（假 API）
+- [ ] **她**：Cloudflare Pages 建项目 `reader`、第一次部署授权（总台跑 `npm run build && ~/node_modules/.bin/wrangler pages deploy dist --project-name reader --branch main`，授权她点）
+- [ ] **她**：设两个 secret（只有她敲）：`wrangler pages secret put APP_TOKEN --project-name reader`、`wrangler pages secret put ANTHROPIC_API_KEY --project-name reader`；Anthropic 控制台给 key 所在 workspace 设月度上限
+- [ ] **她或总台**：本机放一份 key 给真跑用（shell 的 `ANTHROPIC_API_KEY`，或 `~/.config/reader/.env`），然后 `bash scripts/real-all.sh`（≤ $2）：
+  - T3：第 1 章锚定率 ≥90%、quote ≤5 词、第 1/5/12 章截图 + Sonnet 对照 → 她看图拍板 prompt
+  - T4：第二轮缓存命中、防剧透开/关、英文模式、念原文守卫、问小克带词 → 她看 `shots/t4-data/report.json` 里的回答原文
+  - 跑完把实测花费填进 PLAN 第 6 节的 T3/T4 两行
+- [ ] 部署后线上验：设置页"测一下口令"显示"通了"；手机上导入一本、点词、问小克、读完一章看前情有没有生成（设置页暂时看不到摘要，T5 的面板里可以顺手加）
+- [ ] 手机上加到主屏幕、断网再开（T1 遗留的手机部分）
+- [ ] AO3 EPUB 验一次（T2 遗留，AO3 维护结束后）
+- [ ] T5：生词导出 + 备份 + 花费面板（MVP 最后一块，不阻塞先用起来）
+- [ ] 推 GitHub（私有仓库，PLAN 第 7 节）：剧组没推，总台/她定
+- 提交：T4 的改动**还没 commit**（剧组按规矩没自己提交），工作区里全是，总台看完提交即可

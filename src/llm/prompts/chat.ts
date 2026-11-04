@@ -33,3 +33,6 @@ export const CHAT_SYSTEM = `你是「小克」，陪她读英文小说的读书�
 
 /** 英文模式的中途 system 消息（PLAN 3.2 末段）。用法：messages.push({ role: 'system', content: CHAT_EN_MODE })。 */
 export const CHAT_EN_MODE = '从现在起用简单英文回答';
+
+/** T4 补：从英文模式切回中文的中途 system 消息（同样不改 system，只往 messages 里追加）。 */
+export const CHAT_ZH_MODE = '从现在起改回用中文回答';

@@ -42,8 +42,8 @@ export function unknownSample(words: Word[], n = UNKNOWN_SAMPLE): string[] {
     .map((w) => w.lemma);
 }
 
-/** 前情摘要：本章之前各章的摘要，从最近的往前取，总长 ≤600 字。 */
-export async function storySoFar(d: ReaderDB, bookId: string, chapter: number): Promise<string> {
+/** 前情摘要：本章之前各章的摘要，从最近的往前取，总长 ≤600 字（T4 的聊天传更大的 maxChars）。 */
+export async function storySoFar(d: ReaderDB, bookId: string, chapter: number, maxChars = STORY_MAX_CHARS): Promise<string> {
   const rows = (await d.summaries.where('bookId').equals(bookId).toArray())
     .filter((s) => s.chapter < chapter)
     .sort((a, b) => b.chapter - a.chapter);
@@ -51,8 +51,8 @@ export async function storySoFar(d: ReaderDB, bookId: string, chapter: number): 
   let len = 0;
   for (const s of rows) {
     const t = `第${s.chapter}章：${s.textZh.trim()}`;
-    if (len + t.length > STORY_MAX_CHARS) {
-      if (!picked.length) picked.push(t.slice(0, STORY_MAX_CHARS));
+    if (len + t.length > maxChars) {
+      if (!picked.length) picked.push(t.slice(0, maxChars));
       break;
     }
     picked.push(t);

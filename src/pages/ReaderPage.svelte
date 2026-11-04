@@ -1,17 +1,21 @@
 <script lang="ts">
   // 阅读页：没书时给导入入口，有书就挂阅读视图（T2 的东西都在 components/ReaderView.svelte）。
-  // T3 的标注层通过 ReaderView 的 paraContent / afterPara snippet 或监听 'word-tap' 事件接进来。
+  // T3 的标注层挂在 ReaderView 里；T4 的小克抽屉和"读完一章自动摘要"挂在这里（有书时才有）。
+  import ChatDrawer from '../components/ChatDrawer.svelte';
   import ImportButton from '../components/ImportButton.svelte';
   import ReaderView from '../components/ReaderView.svelte';
   import { db } from '../db/db';
   import { currentBookId, type ImportResult } from '../epub/import';
   import { settings } from '../settings.svelte';
+  import { useAutoSummary } from '../chat/autosummary.svelte';
 
   let { onopensettings }: { onopensettings: () => void } = $props();
 
   /** undefined = 还在查；null = 没书 */
   let bookId: string | null | undefined = $state(undefined);
   let notice = $state('');
+
+  useAutoSummary();
 
   currentBookId(db())
     .then((id) => (bookId = id))
@@ -48,6 +52,7 @@
 {:else}
   {#key bookId}
     <ReaderView {bookId} {notice} onswitchbook={opened} />
+    <ChatDrawer {bookId} />
   {/key}
 {/if}
 
