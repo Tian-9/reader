@@ -183,4 +183,8 @@ export interface Settings {
   noSpoilers: boolean;
   /** 各用途的模型覆盖；没写的走 llm/roles.ts 的默认表 */
   models: Partial<Record<Purpose, string>>;
+  /** T2 补：阅读字号（px）。没设走 app.css 的 --read-size（19px） */
+  readSize?: number;
+  /** T2 补：阅读行距（倍数）。没设走 app.css 的 --read-leading（1.7） */
+  readLeading?: number;
 }
