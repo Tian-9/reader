@@ -1,6 +1,6 @@
 # HANDOFF
 
-## 当前状态（2026-11-04，T1–T5 完成，直连模式，已上线 https://tian-9.github.io/reader/；首用反馈已修，见"首用反馈 2026-11-04"一节）
+## 当前状态（2026-11-04，T1–T5 完成，直连模式，已上线 https://tian-9.github.io/reader/；首用反馈已修，见"首用反馈 2026-11-04"一节；朗读/发音已加，见"朗读 / 发音 2026-11-04"一节）
 
 T1 骨架、T2 导入+阅读、T3 标注+词库、T4 小克抽屉+前情摘要、T5 生词导出+备份+花费面板都在本地跑通。MVP 的代码部分到此齐了。
 **2026-11-04 她定：不要代理、不要托管后端，改成 pocketverse 同款"设置页本地填 key、浏览器直连 Anthropic"，静态部署到 GitHub Pages。** 已改完并真跑验过，见下面"直连模式"一节；代理代码存档在 `legacy/`。
@@ -87,6 +87,33 @@ T1 骨架、T2 导入+阅读、T3 标注+词库、T4 小克抽屉+前情摘要�
 **没改的**：模型选择（Haiku/Sonnet 她还没定）、prompt（`ANNOTATE_PROMPT_VERSION` 没动，不触发重标）、books/。
 
 **她可以看/定的**：常用词闸的档位（B1 = 前 2000）会不会藏多了——读几章要是觉得"这个我其实不认识但没划线"，告诉剧组调 `COMMON_TIER`；或者直接点那个词、卡片上"加入生词本"，以后它全书都划线。
+
+## 朗读 / 发音 2026-11-04
+
+她要的：读得慢，想 (a) 点单词听发音 (b) 整段朗读跟着听、练按说话速度理解。用浏览器自带的 Web Speech API（`window.speechSynthesis`，手机系统的文字转语音），不调付费 API、不加第三方脚本（CSP 不动）。
+
+**三个入口**
+1. **单词卡片右上角 🔊**（`WordCard.svelte`，`data-testid=say-word`）：读她点中的那几个字（surface / quote），**不读 lemma**——眼前是 went 就该听 went，lemma 是词典原形、短语 lemma（give a start）读出来和正文对不上。整段朗读中按它：先暂停整段、读完这个词自动接着读。
+2. **每段左页边一个淡的小 ▶**（`ReaderView.svelte` 的 `.say`，落在 main 的 16px 左边距里）：从这段开始**连续往下读到章末**。正在读的段浅色底（`.para.speaking`），段落换了视图跟着滚（段首顶到朗读条下面）。工具条下面出一条 sticky 的**朗读条**：「朗读中 · 1.0x ｜ 暂停 ｜ 停止」，倍速按钮点一下轮换 0.8 / 1.0 / 1.2（当前句按新倍速重念）。标注虚线、点词卡片、※ 在朗读时照常能用。
+3. **设置页「朗读」一节**：声音下拉（只列英文声音，按优先级排；"自动"项显示现在会用哪个）+ 整段朗读默认倍速。存 `settings.voiceURI` / `settings.speechRate`（可选字段，备份照常带）。
+
+**实现（`src/speech/`）**
+- `voices.ts`（纯函数）：`pickVoice` 优先级 = 设置指定的 > **en-GB 的 Google 声音**（安卓 Chrome 上叫 "Google UK English Female/Male"）> 任何 en-GB > 任何 en-*（Google 优先）；lang 兼容 `en_GB` 写法。`splitSentences`：按句末标点切，Mr./Mrs./Dr. 后不断，短句凑到 ≤200 字符，超长句按逗号再按空格切。
+- `speech.svelte.ts`：`createSpeech(env)` 工厂（单测注入假 synth）+ 浏览器默认实例 `speech`（$state：supported / status idle|speaking|paused / paraId / rate / voices / voiceName）。每次 speak 前 `cancel()`；整段 = 逐句 utterance 用 onend 串，gen 计数器让 cancel 之后迟到的 onend/onerror 作废；**暂停 = 记住段+句 → cancel，继续时重念那句**（不用安卓上不靠谱的原生 pause/resume）；合成出错（不是 interrupted）跳过这句继续；`visibilitychange` 隐藏 → stop；换章（`openChapter`）、切书/去设置页（ReaderView `onDestroy`）→ stop。`getVoices()` 先空、听 `voiceschanged` 补；进设置页和每次 speak 前再刷一次。
+- 不支持 speechSynthesis 的浏览器：`speech.supported=false`，🔊、▶ 都不渲染，设置页写一句"这个浏览器不支持朗读"。
+- 一切朗读都由点击触发（安卓 Chrome 要手势才出声），没有自动播。
+
+**踩的坑**：▶ 按钮放进 `<p class="para">` 时，Svelte 把按钮和后面 `{#if}` 之间的换行保留成一个空格文本节点，段内文字比 `para.text` 多一个前导空格，标注高亮整体错一位（`" delightfu"`）。改成 `<p>` 内标记写在一行、按钮是空元素（字形用 CSS `content` 画）+ `data-nontext`。已记进 CLAUDE.md。
+
+**验收**
+| 项 | 结果 |
+|---|---|
+| `npm run lint` / `npm run build` | 过（0 错 0 警告；**162 个单测 + 1 跳过**，新增 `test/speech.test.ts` 26 条） |
+| 单测覆盖（假 speechSynthesis） | 选声音 6 种情况（Google en-GB > en-GB > en-* > null、指定 voiceURI、下拉排序）；切句 5 种；引擎：不支持环境不报错、voiceschanged 异步补声音、读词先 cancel 再 speak、没英文声音 lang 兜底 en-GB、整段逐句串行 + 跳空段 + 章末停、长段 ≤200 切多条顺序不乱、从中间段开始、id 不存在不开始、stop 后迟到的 onend 作废、暂停/继续重念当前句、倍速轮换 + 重念、朗读中读词自动接着读、暂停中读词不恢复、合成出错跳句、设置指定声音 |
+| headless 390px（`node scripts/speech-browser.mjs`，假 API + 假 speechSynthesis） | **17/17 过**：导入 52 段每段有空 ▶ → 点 delightful 出卡片有 🔊 → 🔊 先 cancel 再 speak("delightful")、Google UK English Female、en-GB → ▶ 开始：朗读条"朗读中 · 1.0x"、段高亮、第一条 utterance 是段首 ≤200 字符 → 视图滚到该段 → 朗读中点词卡片照开、🔊 先暂停读词再自动继续 → 高亮跳到下一段且在屏幕内 → 1.2x 重念 → 暂停（cancel、不再 speak、高亮保留）/ 继续 → 停止（条消失、高亮清掉）→ 最后一段读完自动停 → 朗读中去设置页停 → 设置页下拉 4 个英文声音按优先级、无中文声音、自动项写着 Female → 选 Male + 1.2x 保存入库 → 回阅读页再读用 Male、1.2x → 0 报错。截图 `shots/speech-card.png`、`speech-reading.png`、`speech-settings.png`，明细 `shots/speech-data/browser.json` |
+| 回归 | `t4-browser.mjs` 10/10、`fix1-browser.mjs` 11/11、`t5-browser.mjs` 全过 |
+
+**她手机上会怎样（没真机验，按安卓 Chrome 的行为推）**：装了"Google 文字转语音"（Pixel 等大多数安卓出厂自带）时 getVoices 里有 "Google UK English Female"，自动就选它；英语语音包没下载过的话第一次念可能要联网下载一下包（系统行为）。一个英文声音都没有 → utterance 只带 `lang=en-GB` 交给系统，可能用默认声音硬念或**没声音**，设置页"自动"项会显示"还没找到英文声音"，按钮照样在（不能提前知道系统会不会出声）。PWA 全屏模式、息屏/切后台会 stop（visibilitychange），不做后台播放。
 
 ## 直连模式 + GitHub Pages（2026-11-04 改）
 

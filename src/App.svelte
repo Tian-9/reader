@@ -1,12 +1,15 @@
 <script lang="ts">
   import ReaderPage from './pages/ReaderPage.svelte';
   import SettingsPage from './pages/SettingsPage.svelte';
-  import { loadSettings } from './settings.svelte';
+  import { loadSettings, settings } from './settings.svelte';
   import { applyUpdate, initPwa, pwa } from './pwa.svelte';
+  import { initSpeech } from './speech/speech.svelte';
   import { requestPersist } from './storage.svelte';
 
   initPwa();
   requestPersist();
+  // 朗读：接上设置、开始加载系统声音列表（异步，听 voiceschanged）。不自动出声，只是准备
+  initSpeech(settings);
 
   type View = 'read' | 'settings';
   let view: View = $state('read');

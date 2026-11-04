@@ -10,6 +10,7 @@
   import { buildVocabExport } from '../export/vocab';
   import { buildBackup, importBackup, parseBackup } from '../export/backup';
   import { formatUsd, modelShort, spendFor, type SpendSummary } from '../llm/spend';
+  import { SPEECH_RATES, engine as speechEngine, speech, speechSettingsChanged } from '../speech/speech.svelte';
 
   const LEVEL_NOTES: Record<string, string> = {
     A1: '刚入门',
@@ -48,6 +49,24 @@
   function pickChatModel() {
     if (chatModel === ROLES.chat.model) delete settings.models.chat;
     else settings.models.chat = chatModel;
+  }
+
+  // ───────── 朗读 ─────────
+  // 声音：'' = 自动（按 en-GB Google > en-GB > en-* 挑）；选了具体的就存 voiceURI。倍速存数字。
+  let voice = $state(settings.voiceURI ?? '');
+  let rate = $state(settings.speechRate ?? 1);
+  // 进设置页时再拉一次声音列表（安卓上 voiceschanged 有时来得晚）
+  speechEngine.refreshVoices();
+  function pickVoice(e: Event) {
+    voice = (e.currentTarget as HTMLSelectElement).value;
+    if (voice) settings.voiceURI = voice;
+    else delete settings.voiceURI;
+    speechSettingsChanged();
+  }
+  function pickRate(e: Event) {
+    rate = Number((e.currentTarget as HTMLSelectElement).value) || 1;
+    if (rate === 1) delete settings.speechRate;
+    else settings.speechRate = rate;
   }
 
   // ───────── 花费面板 + 词库 ─────────
@@ -112,6 +131,9 @@
       const r = await importBackup(db(), b, settings.apiKey.trim());
       await loadSettings();
       chatModel = settings.models.chat ?? ROLES.chat.model;
+      voice = settings.voiceURI ?? '';
+      rate = settings.speechRate ?? 1;
+      speechSettingsChanged();
       await refresh();
       vocabMsg = `导入了 ${r.imported} 个词（其中 ${r.replaced} 个覆盖了本机原有的），词库现在共 ${r.total} 个。设置也恢复了，API key 保留本机的。`;
     } catch (err) {
@@ -169,6 +191,36 @@
       {/each}
     </select>
   </label>
+
+  <section class="panel" data-test="speech">
+    <h2>朗读</h2>
+    {#if speech.supported}
+      <label class="field">
+        <span>声音</span>
+        <select bind:value={voice} onchange={pickVoice} data-test="voice">
+          <option value="">自动{speech.voiceName ? `（现在会用：${speech.voiceName}）` : '（还没找到英文声音）'}</option>
+          {#each speech.voices as v (v.voiceURI)}
+            <option value={v.voiceURI}>{v.name} · {v.lang}</option>
+          {/each}
+        </select>
+      </label>
+      <label class="field">
+        <span>整段朗读的默认倍速</span>
+        <select bind:value={rate} onchange={pickRate} data-test="speech-rate">
+          {#each SPEECH_RATES as r (r)}
+            <option value={r}>{r.toFixed(1)}x{r === 1 ? '（正常语速）' : r < 1 ? '（慢一点）' : '（快一点）'}</option>
+          {/each}
+        </select>
+      </label>
+      <small class="muted block">
+        朗读用的是手机系统自带的文字转语音（TTS，text-to-speech，把文字念出来的那个功能），不联网、不花钱。
+        "自动"优先挑英式（en-GB）的 Google 声音。安卓上要是一个英文声音都没有，去系统设置装"Google 文字转语音"并下载英语语音包；
+        卡片上的 🔊 读点中的词，段落左边的小 ▶ 从那段开始连读到章末。
+      </small>
+    {:else}
+      <p class="muted small">这个浏览器不支持朗读（没有 speechSynthesis），阅读页不会出现朗读按钮。</p>
+    {/if}
+  </section>
 
   <div class="row">
     <button class="primary" type="submit">保存</button>

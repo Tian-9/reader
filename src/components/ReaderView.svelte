@@ -9,6 +9,7 @@
   import { touchProgress, type ImportResult } from '../epub/import';
   import { wordAt } from '../epub/words';
   import { saveSettings, settings } from '../settings.svelte';
+  import { cycleSpeechRate, speakParas, speech, stopSpeech, toggleSpeech } from '../speech/speech.svelte';
   import { parseParaId, type Book, type ChapterRow, type ParaRow } from '../types';
   import AnnotationLayer from './AnnotationLayer.svelte';
   import ImportButton from './ImportButton.svelte';
@@ -90,6 +91,7 @@
   async function openChapter(n: number, anchorParaId?: string) {
     tracking = false;
     panel = 'none';
+    stopSpeech();
     const rows = await chapterParas(db(), bookId, n);
     chapterN = n;
     paras = rows;
@@ -182,6 +184,32 @@
     io?.disconnect();
     clearTimeout(saveTimer);
     void saveProgress();
+    // 切书 / 去设置页：阅读视图销毁，朗读跟着停
+    stopSpeech();
+  });
+
+  // ───────── 朗读 ─────────
+
+  /** 朗读条的高度（sticky 在工具条下面），朗读时段落的 scroll-margin 要多留这块 */
+  const SPEECH_BAR = 40;
+
+  /** 从这段开始连续往下读到章末。一切朗读都由点击触发（安卓 Chrome 要手势才出声） */
+  function startReading(pid: string) {
+    speakParas(
+      paras.map((p) => ({ id: p.id, text: p.text })),
+      pid,
+    );
+  }
+
+  // 正在读的段落换了 → 不在屏幕上就滚过去（段首顶到朗读条下面）
+  $effect(() => {
+    const pid = speech.paraId;
+    if (!pid || speech.status !== 'speaking' || !article) return;
+    const el = article.querySelector<HTMLElement>(`[data-pid="${pid}"]`);
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const top = TOP + SPEECH_BAR;
+    if (r.top < top || r.top > window.innerHeight - 120) el.scrollIntoView({ block: 'start', behavior: 'smooth' });
   });
 
   // ───────── 点词 ─────────
@@ -291,12 +319,23 @@
 <svelte:window {onscroll} />
 <svelte:document onvisibilitychange={flush} />
 
-<div class="reader" bind:this={root} style:--read-size="{size}px" style:--read-leading={leading}>
+<div class="reader" class:reading={speech.status !== 'idle'} bind:this={root} style:--read-size="{size}px" style:--read-leading={leading}>
   <div class="toolbar">
     <button class="tb" aria-expanded={panel === 'toc'} onclick={openToc}>目录</button>
     <span class="ctitle">{chapter?.title ?? ''}</span>
     <button class="tb" aria-label="字号和行距" aria-expanded={panel === 'type'} onclick={() => (panel = panel === 'type' ? 'none' : 'type')}>Aa</button>
   </div>
+
+  {#if speech.status !== 'idle'}
+    <!-- 朗读条：贴在工具条下面；倍速点一下轮换 0.8 / 1.0 / 1.2 -->
+    <div class="speechbar" role="status" data-testid="speech-bar">
+      <span class="sb-label">{speech.status === 'speaking' ? '朗读中' : '已暂停'} ·</span>
+      <button class="sb" aria-label="倍速" data-testid="speech-rate" onclick={cycleSpeechRate}>{speech.rate.toFixed(1)}x</button>
+      <span class="sb-gap"></span>
+      <button class="sb" data-testid="speech-toggle" onclick={toggleSpeech}>{speech.status === 'speaking' ? '暂停' : '继续'}</button>
+      <button class="sb" data-testid="speech-stop" onclick={stopSpeech}>停止</button>
+    </div>
+  {/if}
 
   {#if shownNotice}
     <p class="notice" role="status">{shownNotice} <button class="x" aria-label="关掉提示" onclick={() => (shownNotice = '')}>知道了</button></p>
@@ -309,9 +348,9 @@
     <article bind:this={article} lang="en" {onclick}>
       <h2 class="chead">{chapter.title}</h2>
       {#each paras as p (p.id)}
-        <p class="para" data-pid={p.id}>
-          {#if paraContent}{@render paraContent(p)}{:else}<ParaText text={p.text} />{/if}
-        </p>
+        <!-- 左页边的小 ▶（朗读）：空按钮，字形用 CSS 画。<p> 里的标记写在一行、不留空白：
+             多一个空格文本节点，段内文字就不等于 para.text，标注偏移全错一位 -->
+        <p class="para" class:speaking={speech.paraId === p.id} data-pid={p.id}>{#if speech.supported}<button class="say" data-nontext aria-label="从这段开始朗读" onclick={(e) => { e.stopPropagation(); startReading(p.id); }}></button>{/if}{#if paraContent}{@render paraContent(p)}{:else}<ParaText text={p.text} />{/if}</p>
         {#if afterPara}{@render afterPara(p)}{/if}
       {/each}
       <!-- T3 标注层（T4 接线）：生词虚线用 Highlight API 画在上面的文字上，※ 画在 article 内的绝对定位浮层里 -->
@@ -470,8 +509,72 @@
     text-align: center;
   }
   .para {
+    position: relative;
     margin: 0 0 var(--para-gap);
     scroll-margin-top: calc(var(--bar-h) + 44px);
+    border-radius: 6px;
+    transition: background-color 0.3s;
+  }
+  /* 朗读条占了 40px，朗读时滚到段落要多让出这块 */
+  .reading .para {
+    scroll-margin-top: calc(var(--bar-h) + 44px + 40px);
+  }
+  .para.speaking {
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 10%, transparent);
+  }
+  /* 段落左页边的 ▶：淡、小，点了从这段开始读。落在 main 的左边距里，只有 2px 伸进正文 */
+  .say {
+    position: absolute;
+    left: -20px;
+    top: 0;
+    width: 22px;
+    height: 1.7em;
+    min-height: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: var(--accent);
+    opacity: 0.4;
+    font-size: 9px;
+    line-height: 1.7em;
+    text-align: center;
+    cursor: pointer;
+  }
+  .say::before {
+    content: '\25B6\FE0E';
+  }
+  .para.speaking .say {
+    opacity: 0.9;
+  }
+  .speechbar {
+    position: sticky;
+    top: calc(var(--bar-h) + 44px);
+    z-index: 5;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0 calc(-1 * var(--gutter));
+    padding: 0 var(--gutter);
+    background: var(--bg);
+    border-bottom: 1px solid var(--line);
+    font-family: var(--ui-font);
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .sb-label {
+    flex: none;
+  }
+  .sb-gap {
+    flex: 1;
+  }
+  .sb {
+    min-height: 30px;
+    padding: 0 10px;
+    font-size: 13px;
+    border-radius: 999px;
   }
   .chapnav {
     display: flex;

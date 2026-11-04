@@ -280,4 +280,8 @@ export interface Settings {
   readSize?: number;
   /** T2 补：阅读行距（倍数）。没设走 app.css 的 --read-leading（1.7） */
   readLeading?: number;
+  /** 2026-11-04 朗读：指定的声音（SpeechSynthesisVoice.voiceURI）。没设走 src/speech/voices.ts 的自动优先级 */
+  voiceURI?: string;
+  /** 2026-11-04 朗读：整段朗读的默认倍速（0.8 / 1 / 1.2）。没设 = 1 */
+  speechRate?: number;
 }

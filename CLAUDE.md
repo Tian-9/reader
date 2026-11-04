@@ -23,6 +23,7 @@ scripts/
   validate-export.mjs           按 schema 校验导出的生词 / 词库备份（node scripts/validate-export.mjs x.json）
   t3-epub.ts / t3-shot.mjs / t3-demo/   T3 的抽段、截图、标注层 demo
   fix1-real.ts / fix1-browser.mjs  首用反馈修复的真跑（过滤前后对比，$0.3 上限）和 headless 验收（闸、小牌子、按钮、本章生词）
+  speech-browser.mjs            headless：注入假 speechSynthesis，走 导入→点词→卡片 🔊→段落 ▶ 连读→高亮跟滚→倍速/暂停/停止→章末自动停→设置页声音/倍速
   make-common-words.mjs         从 NGSL 原始 CSV 生成 src/annotate/common-words.ts（下载地址在文件头）
 src/
   types.ts                      共享接口：Para / Chapter / Annotation / Word / ChatRecord … ← 各 T 的合同（只做加法）
@@ -42,6 +43,8 @@ src/
   export/                       T5：vocab（生词导出，背单词页形状，不带原句）、backup（词库+设置备份/合并导入，不含 API key）
   storage.svelte.ts             T5：启动时 navigator.storage.persist()、下载 JSON 小工具
   llm/prompts/                  annotate（标注）、tap（点词）、chat（小克 + 中英切换指令）、summary（章节摘要）
+  speech/                       朗读（浏览器自带 Web Speech API，不联网）：voices（选声音优先级、切句，纯函数）、
+                                speech.svelte.ts（引擎 + $state：读单词、整段逐句串行、暂停=记位置+cancel、页面隐藏停）
   settings.svelte.ts            设置 $state + 读写
   pwa.svelte.ts                 service worker 注册 + "有新版本"横条
   App.svelte, pages/            界面（中文，手机优先）。ReaderPage 挂 ReaderView + ChatDrawer + 自动摘要
@@ -83,6 +86,8 @@ test/                           单测（vitest + fake-indexeddb）。direct.tes
 - **备份文件不带 API key**（会进下载目录、发给 Claude 会话）。导入时保留本机的 key；`scripts/validate-export.mjs` 见到 apiKey / appToken 就判不过。
 - **仓库是公开的。** 推之前确认历史里没有 key：`git log --all -p | grep -cE 'sk-an[t]'` 必须是 0（正则写成 `[t]` 是为了这行文档自己不被匹配）。所以测试和脚本里的假 key 一律别用 Anthropic key 的前缀，写 `test-key-…` / `mock-key-…`。也确认没有书、没有 shots/。
 - **显示过滤不信模型的 level。** 常用词闸 + 专有名词闸在 `visible.ts`（PLAN 2.4(d)），被闸住的不划线、不进词库、不进导出、不进 `<known>/<unknown>`；只有她点了"加入生词本"的能越过。改阈值档位改 `COMMON_TIER`。`common-words.ts` 是 CC BY-SA 4.0 的改编数据，文件头的署名别删。
+- **`<p class="para">` 里的标记要写在一行、不留空白。** Svelte 会把元素之间的换行保留成一个空格文本节点，段内文字就不等于 `para.text`，所有标注偏移错一位（加朗读 ▶ 按钮时踩过：highlight 变成 `" delightfu"`）。往段落里加任何元素都不能带文字节点（空按钮 + CSS `content` 画字形），并加 `data-nontext`。
+- **朗读（speechSynthesis）**：安卓 Chrome 要用户手势后才出声，所有 speak 都由点击触发、不自动播；Chrome 不 `cancel()` 会排队，所以每次 speak 前先 cancel；长文本中途会静音，整段朗读按句切 ≤200 字符逐句串；原生 `pause()/resume()` 安卓上不靠谱，暂停做成"记住段+句 → cancel"，继续时重念那句；`getVoices()` 一开始可能是空的，要听 `voiceschanged`。
 - **$state.raw 里的数组被就地 push 后，重新赋值外层对象时数组也要换新**（`{...s, display: [...s.display]}`），不然 $derived 看不到变化。
 
 ## 文案

@@ -12,6 +12,7 @@
 <script lang="ts">
   // 底部卡片：生词（释义 / 这个我会 / 加入生词本 / 问小克）或"有意思"小注（讲解 / 问小克）。
   // 只管显示和按钮回调，写库在 AnnotationLayer 里做。
+  import { speakWord, speech } from '../speech/speech.svelte';
   import type { WordStatus } from '../types';
 
   let {
@@ -37,6 +38,9 @@
   const a = $derived(card.ann);
   const isFun = $derived(a?.kind === 'fun');
   const title = $derived(a ? (isFun ? a.quote : a.lemma || a.quote) : card.surface);
+  // 🔊 读的是她点中的那几个字（surface / quote），不是 lemma：
+  // 眼前的字是 went 就该听 went；lemma 是词典原形，读出来和正文对不上，短语 lemma（give a start）更是如此。
+  const sayText = $derived(card.surface || title);
 </script>
 
 <div class="scrim" role="presentation" onclick={onclose}></div>
@@ -46,6 +50,9 @@
     {#if a && !isFun && a.level !== '-'}<span class="badge">{a.level}</span>{/if}
     {#if a?.invented}<span class="badge">自造词</span>{/if}
     {#if isFun && a && a.funType !== '-'}<span class="badge fun">{a.funType}</span>{/if}
+    {#if speech.supported}
+      <button class="say" aria-label="听发音" title="听发音" data-testid="say-word" onclick={() => speakWord(sayText)}>🔊</button>
+    {/if}
     <button class="x" aria-label="关闭" onclick={onclose}>关闭</button>
   </header>
 
@@ -117,6 +124,19 @@
   .badge.fun {
     color: var(--accent);
     border-color: var(--accent);
+  }
+  .say {
+    flex: none;
+    margin-left: auto;
+    min-height: 36px;
+    width: 40px;
+    padding: 0;
+    font-size: 18px;
+    line-height: 1;
+    border-radius: 999px;
+  }
+  .say + .x {
+    margin-left: 0;
   }
   .x {
     margin-left: auto;
